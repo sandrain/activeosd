@@ -1,0 +1,8 @@
+db-test.o: db-test.c ../osd.h ../osd-types.h ../../osd-util/osd-defs.h \
+ ../cdb.h ../db.h ../attr.h ../obj.h ../coll.h ../../osd-util/osd-util.h
+osd-test.o: osd-test.c ../osd.h ../osd-types.h ../../osd-util/osd-defs.h \
+ ../cdb.h ../db.h ../attr.h ../obj.h ../coll.h ../../osd-util/osd-util.h \
+ ../../osd-util/osd-sense.h ../target-sense.h
+time-db.o: time-db.c ../osd-types.h ../../osd-util/osd-defs.h ../osd.h \
+ ../osd-types.h ../cdb.h ../db.h ../coll.h ../obj.h ../attr.h \
+ ../../osd-util/osd-util.h
