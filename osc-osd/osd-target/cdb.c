@@ -69,6 +69,45 @@ struct command {
 	int senselen;
 };
 
+static int read_active_obj_list(struct active_obj_list *olist, const void *hdr)
+{
+	uint8_t *pos = (uint8_t *) hdr;
+	uint32_t i, n;
+	uint64_t pid, *oids;
+
+	n = get_ntohl(pos);
+	pid = get_ntohll(&pos[4]);
+	oids = malloc(sizeof(*oids) * n);
+	if (!oids)
+		return -ENOMEM;
+
+	for (i = 0; i < n; i++)
+		oids[i] = get_ntohll(&pos[12+8*i]);
+
+	olist->num_entries = n;
+	olist->pid = pid;
+	olist->oids = oids;
+
+	return 0;
+}
+
+static int read_active_args(struct active_args *args, const void *hdr)
+{
+	uint8_t *pos = (uint8_t *) hdr;
+	uint32_t n;
+	char *tmp;
+
+	n = get_ntohl(pos);
+	tmp = strndup(&pos[4], n);
+	if (!tmp)
+		return -ENOMEM;
+
+	args->len = n;
+	args->args = tmp;
+
+	return 0;
+}
+
 static int get_attr_page(struct command *cmd, uint64_t pid, uint64_t oid,
 			 uint8_t isembedded, uint16_t numoid, uint32_t cdb_cont_len)
 {
@@ -1015,6 +1054,7 @@ static inline int std_get_set_attr(struct command *cmd, uint64_t pid,
 	return get_attributes(cmd, pid, oid, 1, cdb_cont_len);
 }
 
+#if 0
 static int cdb_execute_kernel(struct command *cmd, uint32_t cdb_cont_len,
 				uint8_t* sense)
 {
@@ -1025,10 +1065,7 @@ static int cdb_execute_kernel(struct command *cmd, uint32_t cdb_cont_len,
 	uint64_t out = get_ntohll(&cdb[32]); /* len of cmp/swap */
 	uint64_t kernel = get_ntohll(&cdb[40]); /* offset in dataout */
 
-#if 0
 	ret = osd_submit_active_job(cmd->osd, pid, in, out, kernel, sense);
-	return ret;
-#endif
 	return ret;
 }
 
@@ -1044,6 +1081,7 @@ static int cdb_execute_query(struct command *cmd, uint32_t cdb_cont_len,
 	ret = osd_query_active_job(cmd->osd, pid, oid, job, sense);
 	return ret;
 }
+#endif
 
 static int cdb_cas(struct command *cmd, uint32_t cdb_cont_len)
 {
@@ -2019,19 +2057,60 @@ static void exec_service_action(struct command *cmd)
 		break;
 	}
 	case OSD_EXECUTE_KERNEL: {
-		/** active kernel execution */
-		ret = cdb_execute_kernel(cmd, cdb_cont_len, sense);
+		int ret;
+		uint64_t tid = 0;
+		uint64_t pid = get_ntohll(&cdb[16]);
+		uint64_t oid = get_ntohll(&cdb[24]);
+		struct active_task_req req;
+
+		/**
+		 * this requires 3 descriptors: two object lists and an args.
+		 */
+		if (cmd->cont.num_descriptors != 3) {
+			ret = sense_basic_build(cmd->sense,
+					OSD_SSK_ILLEGAL_REQUEST,
+					OSD_ASC_INVALID_FIELD_IN_CDB, pid,
+					oid);
+			break;
+		}
+
+		req.k_pid = pid;
+		req.k_oid = oid;
+#if 0
+		req.input = cmd->cont.descriptors[0].desc_specific_hdr;
+		req.output = cmd->cont.descriptors[1].desc_specific_hdr;
+		req.args = cmd->cont.descriptors[2].desc_specific_hdr;
+#endif
+		ret = read_active_obj_list(&req.input,
+				cmd->cont.descriptors[0].desc_specific_hdr);
 		if (ret)
 			break;
-		ret = std_get_set_attr(cmd, pid, oid, cdb_cont_len);
+		ret = read_active_obj_list(&req.output,
+				cmd->cont.descriptors[1].desc_specific_hdr);
+		if (ret) {
+			if (req.input.oids)
+				free(req.input.oids);
+			break;
+		}
+		ret = read_active_args(&req.args,
+				cmd->cont.descriptors[2].desc_specific_hdr);
+		if (ret) {
+			if (req.input.oids)
+				free(req.input.oids);
+			if (req.output.oids)
+				free(req.output.oids);
+			break;
+		}
+
+		ret = osd_submit_active_task(cmd->osd, &req, &tid, sense);
 		break;
 	}
 	case OSD_EXECUTE_QUERY: {
-		/** kernel execution complete? */
-		ret = cdb_execute_query(cmd, cdb_cont_len, sense);
-		if (ret)
-			break;
-		ret = std_get_set_attr(cmd, pid, oid, cdb_cont_len);
+		uint64_t tid = get_ntohll(&cdb[32]);
+
+		ret = osd_query_active_task(cmd->osd, tid, &cmd->used_outlen,
+					cmd->outdata, sense);
+		break;
 	}
 	case OSD_CAS: {
 	        ret = cdb_cas(cmd, cdb_cont_len);
