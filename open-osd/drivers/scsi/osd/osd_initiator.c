@@ -599,65 +599,41 @@ static void _osd_req_encode_common(struct osd_request *or,
 /*
  * Active kernel execution commands.
  */
-static void _osdv1_req_encode_execute(struct osd_request *or, __be16 act, 
-	const struct osd_obj_id *obj, const struct osd_obj_id *result,
-	const struct osd_obj_id *kernel)
+
+static inline void _osdv1_req_encode_execute_kernel(struct osd_request *or,
+				__be16 act, struct osd_active_task *task)
 {
 	struct osdv1_cdb *ocdb = &or->cdb.v1;
-	_osdv1_req_encode_common(or, act, obj, 0, 0);
+	struct osd_obj_id kid = { task->pid, task->k_oid };
 
-	ocdb->h.v1.length = cpu_to_be64(result->id);
-	ocdb->h.v1.start_address = cpu_to_be64(kernel->id);
+	_osdv1_req_encode_common(or, act, &kid, 0, 0);
 }
 
-static void _osdv2_req_encode_execute(struct osd_request *or, __be16 act, 
-	const struct osd_obj_id *obj, const struct osd_obj_id *result,
-	const struct osd_obj_id *kernel)
+static inline void _osdv2_req_encode_execute_kernel(struct osd_request *or,
+				__be16 act, struct osd_active_task *task)
 {
-	struct osdv2_cdb *ocdb = &or->cdb.v2;
+	struct osdv1_cdb *ocdb = &or->cdb.v2;
+	struct osd_obj_id kid = { task->pid, task->k_oid };
 
-	_osdv2_req_encode_common(or, act, obj, 0, 0);
-
-	ocdb->h.v2.length = cpu_to_be64(result->id);
-	ocdb->h.v2.start_address = cpu_to_be64(kernel->id);
+	_osdv2_req_encode_common(or, act, &kid, 0, 0);
 }
 
-static void _osd_req_encode_execute_kernel(struct osd_request *or, __be16 act,
-	const struct osd_obj_id *obj, const struct osd_obj_id *result,
-	const struct osd_obj_id *kernel)
-{
-	if (osd_req_is_ver1(or))
-		_osdv1_req_encode_execute(or, act, obj, result, kernel);
-	else
-		_osdv2_req_encode_execute(or, act, obj, result, kernel);
-}
-
-static void _osdv1_req_encode_execute_query(struct osd_request *or, __be16 act, 
-	const struct osd_obj_id *obj, const struct osd_obj_id *job)
+static inline void _osdv1_req_encode_execute_query(struct osd_request *or,
+						__be16 act, u64 tid)
 {
 	struct osdv1_cdb *ocdb = &or->cdb.v1;
-	_osdv1_req_encode_common(or, act, obj, 0, 0);
+	struct osd_obj_id task = { 0, tid };
 
-	ocdb->h.v1.length = cpu_to_be64(job->id);
+	_osdv1_req_encode_common(or, act, &task, 0, 0);
 }
 
-static void _osdv2_req_encode_execute_query(struct osd_request *or, __be16 act, 
-	const struct osd_obj_id *obj, const struct osd_obj_id *job)
+static inline void _osdv2_req_encode_execute_query(struct osd_request *or,
+						__be16 act, u64 tid)
 {
-	struct osdv2_cdb *ocdb = &or->cdb.v2;
+	struct osdv1_cdb *ocdb = &or->cdb.v2;
+	struct osd_obj_id task = { 0, tid };
 
-	_osdv2_req_encode_common(or, act, obj, 0, 0);
-
-	ocdb->h.v2.length = cpu_to_be64(job->id);
-}
-
-static void _osd_req_encode_execute_query(struct osd_request *or, __be16 act,
-	const struct osd_obj_id *obj, const struct osd_obj_id *job)
-{
-	if (osd_req_is_ver1(or))
-		_osdv1_req_encode_execute_query(or, act, obj, job);
-	else
-		_osdv2_req_encode_execute_query(or, act, obj, job);
+	_osdv2_req_encode_common(or, act, &task, 0, 0);
 }
 
 /*
@@ -837,6 +813,37 @@ void osd_req_remove_object(struct osd_request *or, struct osd_obj_id *obj)
 }
 EXPORT_SYMBOL(osd_req_remove_object);
 
+void osd_req_execute_kernel(struct osd_request *or,
+				struct osd_active_task *task)
+{
+	struct request_queue *req_q = osd_request_queue(or->osd_dev);
+	struct osdv1_cdb *ocdb = &or->cdb.v1;
+	struct osd_obj_id kid = { task->pid, task->k_oid };
+	struct bio *bio;
+	void *mem;
+	u64 len;
+
+	if (unlikely(osd_req_is_ver1(or)))
+		_osdv1_req_encode_common(or, act, &kid, 0, 0);
+	else
+		_osdv2_req_encode_common(or, act, &kid, 0, 0);
+
+	/** find out what is the total length we need */
+	len = sizeof(u64)*(task->input->len + task->output->len)
+		+ sizeof(u32)*3 + sizeof(char)*task->args->len;
+}
+EXPORT_SYMBOL(osd_req_execute_kernel);
+
+void osd_req_execute_query(struct osd_request *or, u64 tid)
+{
+	if (osd_req_is_ver1)
+		_osdv1_req_encode_execute_query(or, OSD_ACT_EXECUTE_QUERY, tid);
+	else
+		_osdv2_req_encode_execute_query(or, OSD_ACT_EXECUTE_QUERY, tid);
+}
+EXPORT_SYMBOL(osd_req_execute_query);
+
+#if 0
 void osd_req_execute_kernel(struct osd_request *or, struct osd_obj_id *obj,
 			struct osd_obj_id *result, struct osd_obj_id *kernel)
 {
@@ -850,7 +857,7 @@ void osd_req_execute_query(struct osd_request *or, struct osd_obj_id *obj,
 {
 	_osd_req_encode_execute_query(or, OSD_ACT_EXECUTE_QUERY, obj, job);
 }
-
+#endif
 
 /*TODO: void osd_req_create_multi(struct osd_request *or,
 	struct osd_obj_id *first, struct osd_obj_id_list *list, unsigned nelem);
