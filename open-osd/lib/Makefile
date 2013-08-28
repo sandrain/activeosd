@@ -29,7 +29,9 @@ CWARN := -Wall -W -Wwrite-strings \
 
 CWARN_NOT=-Wcast-qual -Wcast-align -Wbad-function-cast
 
-CFLAGS = -fPIC $(CWARN) $(INCLUDES) $(DEFINES)
+COPTS = -O0 -ggdb
+
+CFLAGS = $(COPTS) -fPIC $(CWARN) $(INCLUDES) $(DEFINES)
 LDFLAGS += --no-undefined -lc
 # --no-allow-shlib-undefined 
 COMMON_OBJ=osd_initiator.o

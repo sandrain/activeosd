@@ -139,6 +139,7 @@ enum osd_additional_sense_codes {
 	scsi_failure_prediction_threshold_exceeded		= 0x5d00,
 	scsi_failure_prediction_threshold_exceeded_false	= 0x5dff,
 	scsi_voltage_fault					= 0x6500,
+	osd_submitted_task_id					= 0x8800,
 };
 
 enum scsi_descriptor_types {

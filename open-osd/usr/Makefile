@@ -36,7 +36,7 @@ CFLAGS = -fPIC $(CWARN) $(INCLUDES) $(DEFINES)
 
 OSD_LIBS=-L../lib -losd
 
-ALL = osd_test mkfs.exofs osdblk
+ALL = osd_test mkfs.exofs osdblk linkcol atest
 all: $(DEPEND) $(ALL)
 
 clean: $(ALL:=_clean)
@@ -82,6 +82,26 @@ osdblk:  $(osdblk_OBJ)
 osdblk_clean:
 
 $(DEPEND): $(osdblk_OBJ:.o=.c)
+
+# =============== linkcol ======================================================
+linkcol_OBJ=linkcol.o
+
+linkcol:  $(linkcol_OBJ)
+	$(CC) -o $@ $^ $(OSD_LIBS)
+
+linkcol_clean:
+
+$(DEPEND): $(linkcol_OBJ:.o=.c)
+
+# =============== atest ======================================================
+atest_OBJ=atest.o
+
+atest:  $(atest_OBJ)
+	$(CC) -o $@ $^ $(OSD_LIBS)
+
+atest_clean:
+
+$(DEPEND): $(atest_OBJ:.o=.c)
 
 # =============== common rules =================================================
 # every thing should compile if Makefile changed

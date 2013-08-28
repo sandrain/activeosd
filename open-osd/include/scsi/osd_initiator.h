@@ -371,10 +371,35 @@ void osd_req_set_member_attrs(struct osd_request *or, ...);/* V2-only NI */
 void osd_req_create_object(struct osd_request *or, struct osd_obj_id *);
 void osd_req_remove_object(struct osd_request *or, struct osd_obj_id *);
 
-void osd_req_execute_kernel(struct osd_request *or, struct osd_obj_id *obj,
-		struct osd_obj_id *result, struct osd_obj_id *kernel);
-void osd_req_execute_query(struct osd_request *or, struct osd_obj_id *obj,
-		struct osd_obj_id *job);
+/*
+ * active commands.
+ */
+
+#if 0
+struct osd_active_task {
+	u64 pid;
+	u64 k_oid;
+	u64 tid;	/** [out] set after successfull submission */
+
+	u8 *input;
+	u8 *output;
+	u8 *args;
+};
+#endif
+
+struct osd_active_task_status {
+	u32 status;
+	u32 ret;
+	u64 submit;
+	u64 complete;
+} __attribute__((packed));
+
+int osd_req_execute_kernel(struct osd_request *or,
+			const struct osd_obj_id *obj, u64 icid, u64 ocid,
+			u32 args_len, const char *args);
+
+void osd_req_execute_query(struct osd_request *or, u64 tid,
+				struct osd_active_task_status *ts);
 
 void osd_req_write(struct osd_request *or,
 	const struct osd_obj_id *obj, u64 offset, struct bio *bio, u64 len);

@@ -125,6 +125,8 @@
 #define QUERY_LIST 0x0002
 #define USER_OBJECT 0x0100
 #define COPY_USER_OBJECT_SOURCE 0x0101
+/** kernel execution: what a poor choice of number */
+#define KERNEL_EXECUTION_PARAM 0x2222
 #define EXTENSION_CAPABILITIES 0xFFEE
 
 /* object duplication methods, osd2r04 sec 4.13.3 */

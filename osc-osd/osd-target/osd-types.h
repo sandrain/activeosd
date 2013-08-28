@@ -242,6 +242,17 @@ struct copy_user_object_source {
 	uint16_t			reserved3;
 };
 
+/**
+ * continuation descriptor for active kernel execution (EXECUTE_KERNEL)
+ */
+
+struct kernel_execution_params {
+	uint64_t	input_cid;
+	uint64_t	output_cid;
+	uint32_t	args_len;
+	const char	*args;
+};
+
 struct cdb_continuation_descriptor_header {
 	uint16_t	type;
 	uint8_t		reserved;
