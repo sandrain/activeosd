@@ -244,22 +244,12 @@ struct copy_user_object_source {
 
 /**
  * continuation descriptor for active kernel execution (EXECUTE_KERNEL)
- *
- * every EXECUTE_KERNEL CDB contains two active_obj_list, one for input and the
- * other for output, and active_args, thus, 3 continuation descriptors.
- *
- * active_obj_list: input or output object list.
- * active_args: string argument being passed to the kernel.
  */
 
-struct active_obj_list {
-	uint32_t	num_entries;
-	uint64_t	pid;
-	uint64_t	*oids;
-};
-
-struct active_args {
-	uint32_t	len;
+struct kernel_execution_params {
+	uint64_t	input_cid;
+	uint64_t	output_cid;
+	uint32_t	args_len;
 	const char	*args;
 };
 

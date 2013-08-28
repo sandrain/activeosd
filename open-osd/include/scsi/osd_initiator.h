@@ -375,16 +375,7 @@ void osd_req_remove_object(struct osd_request *or, struct osd_obj_id *);
  * active commands.
  */
 
-struct osd_active_obj_list {
-	u32 len;
-	u64 oids[0];
-};
-
-struct osd_active_args {
-	u32 len;
-	char args[0];
-};
-
+#if 0
 struct osd_active_task {
 	u64 pid;
 	u64 k_oid;
@@ -394,6 +385,7 @@ struct osd_active_task {
 	u8 *output;
 	u8 *args;
 };
+#endif
 
 struct osd_active_task_status {
 	u32 status;
@@ -402,8 +394,9 @@ struct osd_active_task_status {
 	u64 complete;
 } __attribute__((packed));
 
-void osd_req_execute_kernel(struct osd_request *or,
-				struct osd_active_task *task);
+int osd_req_execute_kernel(struct osd_request *or,
+			const struct osd_obj_id *obj, u64 icid, u64 ocid,
+			u32 args_len, const char *args);
 
 void osd_req_execute_query(struct osd_request *or, u64 tid,
 				struct osd_active_task_status *ts);

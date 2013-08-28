@@ -600,6 +600,7 @@ static void _osd_req_encode_common(struct osd_request *or,
  * Active kernel execution commands.
  */
 
+#if 0
 static inline void _osdv1_req_encode_execute_kernel(struct osd_request *or,
 				__be16 act, struct osd_active_task *task)
 {
@@ -635,6 +636,7 @@ static inline void _osdv2_req_encode_execute_query(struct osd_request *or,
 
 	_osdv2_req_encode_common(or, act, &task, 0, 0);
 }
+#endif
 
 /*
  * Device commands
@@ -776,6 +778,12 @@ EXPORT_SYMBOL(osd_req_flush_partition);
 /*TODO: void osd_req_remove_collection(struct osd_request *,
 	const struct osd_obj_id *); */
 
+void osd_req_create_collection(struct osd_request *or,
+				const struct osd_obj_id *obj)
+{
+	_osd_req_encode_common(or, OSD_ACT_CREATE_COLLECTION, obj, 0, 0);
+}
+
 int osd_req_list_collection_objects(struct osd_request *or,
 	const struct osd_obj_id *obj, osd_id initial_id,
 	struct osd_obj_id_list *list, unsigned nelem)
@@ -813,6 +821,7 @@ void osd_req_remove_object(struct osd_request *or, struct osd_obj_id *obj)
 }
 EXPORT_SYMBOL(osd_req_remove_object);
 
+#if 0
 void osd_req_execute_kernel(struct osd_request *or,
 				struct osd_active_task *task)
 {
@@ -833,7 +842,9 @@ void osd_req_execute_kernel(struct osd_request *or,
 		+ sizeof(u32)*3 + sizeof(char)*task->args->len;
 }
 EXPORT_SYMBOL(osd_req_execute_kernel);
+#endif
 
+#if 0
 void osd_req_execute_query(struct osd_request *or, u64 tid)
 {
 	if (osd_req_is_ver1)
@@ -842,22 +853,92 @@ void osd_req_execute_query(struct osd_request *or, u64 tid)
 		_osdv2_req_encode_execute_query(or, OSD_ACT_EXECUTE_QUERY, tid);
 }
 EXPORT_SYMBOL(osd_req_execute_query);
-
-#if 0
-void osd_req_execute_kernel(struct osd_request *or, struct osd_obj_id *obj,
-			struct osd_obj_id *result, struct osd_obj_id *kernel)
-{
-	_osd_req_encode_execute_kernel(or, OSD_ACT_EXECUTE_KERNEL,
-				obj, result, kernel);
-}
-EXPORT_SYMBOL(osd_req_execute_kernel);
-
-void osd_req_execute_query(struct osd_request *or, struct osd_obj_id *obj,
-			struct osd_obj_id *job)
-{
-	_osd_req_encode_execute_query(or, OSD_ACT_EXECUTE_QUERY, obj, job);
-}
 #endif
+
+/**
+ * task execution on active osd
+ */
+
+struct osd_active_params_descriptor {
+	struct _continuation_desc_header {
+		__be16	type;
+		u8	reserved1;
+		u8	reserved2:5;
+		u8	padlen:3;
+		__be32	length;
+	} header;
+
+	/** descriptor specific data */
+	__be64	input_cid;
+	__be64	output_cid;
+	__be32	args_len;
+	u8	args[0];
+} __attribute__((packed));
+
+struct osd_continuation_segment {
+	u8	format;
+	u8	reserved1;
+	__be16	action;
+	__be32	reserved2;
+	u8	integrity[32];
+
+	/** continuation descriptors */
+	u8	descriptors[0];
+} __attribute__((packed));
+
+int osd_req_execute_kernel(struct osd_request *or,
+			const struct osd_obj_id *obj, u64 icid, u64 ocid,
+			u32 args_len, const char *args)
+{
+	struct bio *bio;
+	struct request_queue *req_q = osd_request_queue(or->osd_dev);
+	struct osd_continuation_segment *segment;
+	struct osd_active_params_descriptor *desc;
+	struct osd_cdb *cdb = &or->cdb;
+	u32 desc_len, cont_len;
+	__be32 *continuation_length;
+
+	/** zero pad for 8B alignment */
+	desc_len = sizeof(*desc) + args_len;
+	if (desc_len % 8 != 0)
+		desc_len += 8 - (desc_len % 8);
+
+	cont_len = 40 + desc_len;
+	if (cont_len % 8 != 0)
+		cont_len += 8 - (cont_len % 8);
+
+	segment = (typeof(segment)) kzalloc(cont_len, 0);
+	if (unlikely(!segment))
+		return -ENOMEM;
+
+	segment->format = 1;
+	segment->action = OSD_ACT_EXECUTE_KERNEL;
+
+	desc = (typeof(desc)) segment->descriptors;
+
+	desc->header.type = 0x2222;
+	desc->header.length = cpu_to_be32(desc_len - sizeof(desc->header));
+
+	desc->input_cid = cpu_to_be64(icid);
+	desc->output_cid = cpu_to_be64(ocid);
+	desc->args_len = cpu_to_be32(args_len);
+	memcpy((void *) desc->args, args, args_len);
+
+	_osd_req_encode_common(or, OSD_ACT_EXECUTE_KERNEL, obj, 0, 0);
+
+	bio = bio_map_kern(req_q, (void *) segment, cont_len, GFP_KERNEL);
+	if (IS_ERR(bio))
+		return PTR_ERR(bio);
+
+	bio->bi_rw |= (1 << BIO_RW);
+	or->out.bio = bio;
+	or->out.total_bytes = cont_len;
+
+	continuation_length = (__be32 *) &cdb->buff[48];
+	*continuation_length = cpu_to_be32(cont_len);
+
+	return 0;
+}
 
 /*TODO: void osd_req_create_multi(struct osd_request *or,
 	struct osd_obj_id *first, struct osd_obj_id_list *list, unsigned nelem);

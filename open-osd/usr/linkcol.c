@@ -115,6 +115,7 @@ static void usage(void)
 
 #define _LLU(x) ((unsigned long long)x)
 
+#if 0
 static u64 ullwithGMK(char *optarg)
 {
 	char *pGMK;
@@ -164,6 +165,7 @@ static uint64_t get_ntohll_le(const void *d)
 
 	return (uint64_t) d0 << 32 | d1;
 }
+#endif
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 #define get_ntohll     get_ntohll_le
@@ -210,191 +212,47 @@ static int osdblk_exec(struct osd_request *or, u8 *cred)
 	return ret;
 }
 
-static int do_resize(struct osd_dev *od, struct osd_obj_id *obj, u64 size)
+static int do_link(struct osd_dev *od, u64 pid, u64 oid, u64 cid)
 {
-	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
+#if 0
 	__be64 be_size = cpu_to_be64(size);
-	u8 creds[OSD_CAP_LEN];
 	struct osd_attr attr_logical_length = ATTR_SET(
 		OSD_APAGE_OBJECT_INFORMATION, OSD_ATTR_OI_LOGICAL_LENGTH,
 		sizeof(be_size), &be_size);
-	int ret;
-
-	if (unlikely(!or))
-		return -ENOMEM;
-
-	osdblk_make_credential(creds, obj, osd_req_is_ver1(or));
-
-	osd_req_set_attributes(or, obj);
-	osd_req_add_set_attr_list(or, &attr_logical_length, 1);
-
-	ret = osdblk_exec(or, creds);
-	osd_end_request(or);
-
-	if (ret)
-		return ret;
-
-	OSDBLK_INFO("Resized: pid=0x%llx oid=0x%llx length=0x%llx\n",
-		_LLU(obj->partition), _LLU(obj->id),
-		_LLU(size));
-
-	return 0;
-}
-
-static int do_create(struct osd_dev *od, struct osd_obj_id *obj, u64 size)
-{
-	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
-	u8 creds[OSD_CAP_LEN];
-	int ret;
-
-	if (unlikely(!or))
-		return -ENOMEM;
-
-	osdblk_make_credential(creds, obj, osd_req_is_ver1(or));
-
-	/* Create partition OK to fail (all ready exist) */
-	osd_req_create_partition(or, obj->partition);
-	ret = osdblk_exec(or, creds);
-	osd_end_request(or);
-
-	if (ret)
-		OSDBLK_INFO("pid=0x%llx exists\n", _LLU(obj->partition));
-
-	or = osd_start_request(od, GFP_KERNEL);
-	if (unlikely(!or))
-		return -ENOMEM;
-
-	osd_req_create_object(or, obj);
-	ret = osdblk_exec(or, creds);
-	osd_end_request(or);
-
-	if (ret)
-		return ret;
-
-	OSDBLK_INFO("Created: pid=0x%llx oid=0x%llx\n",
-		_LLU(obj->partition), _LLU(obj->id));
-
-	return do_resize(od, obj, size);
-}
-
-static int do_remove(struct osd_dev *od, struct osd_obj_id *obj)
-{
-	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
-	u8 creds[OSD_CAP_LEN];
-	int ret;
-
-	if (unlikely(!or))
-		return -ENOMEM;
-
-	osdblk_make_credential(creds, obj, osd_req_is_ver1(or));
-	osd_req_remove_object(or, obj);
-	ret = osdblk_exec(or, creds);
-	osd_end_request(or);
-
-	if (ret)
-		return ret;
-
-	OSDBLK_INFO("Removed: pid=0x%llx oid=0x%llx\n",
-		_LLU(obj->partition), _LLU(obj->id));
-
-	return 0;
-}
-
-static int do_create_collection(struct osd_dev *od, struct osd_obj_id *obj)
-{
-	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
-	u8 creds[OSD_CAP_LEN];
-	int ret;
-
-	if (unlikely(!or))
-		return -ENOMEM;
-
-	osdblk_make_credential(creds, obj, osd_req_is_ver1(or));
-	osd_req_create_collection(or, obj);
-	ret = osdblk_exec(or, creds);
-	osd_end_request(or);
-
-	if (ret)
-		return ret;
-
-	OSDBLK_INFO("Collection created: pid=0x%llx oid=0x%llx\n",
-			_LLU(obj->partition), _LLU(obj->id));
-
-	return 0;
-}
-
-#if 0
-static int do_execute(struct osd_dev *od, struct osd_obj_id *obj,
-		struct osd_obj_id *result, struct osd_obj_id *kernel)
-{
-	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
-	u8 creds[OSD_CAP_LEN];
-	int ret;
-	u8 *tmp = or->sense;
-	uint32_t id;
-
-	if (unlikely(!or))
-		return -ENOMEM;
-
-	osdblk_make_credential(creds, obj, osd_req_is_ver1(or));
-	osd_req_execute_kernel(or, obj, result, kernel);
-	ret = osdblk_exec(or, creds);
-	osd_end_request(or);
-
-	if (ret)
-		return ret;
-
-	id = ntohl(*((uint32_t *) tmp));
-
-	OSDBLK_INFO("Execute kernel: job %u (pid=0x%llx oid=0x%llx)"
-	            " submitted\n",
-		    id, _LLU(obj->partition), _LLU(obj->id));
-
-	return 0;
-}
-
-static int do_query(struct osd_dev *od, struct osd_obj_id *obj,
-		struct osd_obj_id *job)
-{
-	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
-	u8 creds[OSD_CAP_LEN];
-	int ret;
-	u8 *tmp = or->sense;
-	uint64_t size;
-
-	if (unlikely(!or))
-		return -ENOMEM;
-
-	osdblk_make_credential(creds, obj, osd_req_is_ver1(or));
-	osd_req_execute_query(or, obj, job);
-	ret = osdblk_exec(or, creds);
-	osd_end_request(or);
-
-	if (ret)
-		return ret;
-
-	size = get_ntohll(tmp);
-
-	OSDBLK_INFO("Job status: job %u (size = %lu)\n",
-			_LLU(job->id), size);
-
-	return 0;
-}
 #endif
+	int ret;
+	u8 creds[OSD_CAP_LEN];
+	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
+	struct osd_obj_id obj;
+	__be64 be_cid = cpu_to_be64(cid);
+	struct osd_attr membership = ATTR_SET(OSD_APAGE_OBJECT_COLLECTIONS, 1,
+						sizeof(be_cid), &be_cid);
 
-enum osd_todo {
-	osd_none = 0,
-	osd_create,
-	osd_remove,
-	osd_resize,
-	osd_execute,
-	osd_query,
-	osd_create_collection,
-};
+	if (unlikely(!or))
+		return -ENOMEM;
 
-static int _do(char *path, struct osd_obj_id *obj,
-		struct osd_obj_id *result, struct osd_obj_id *kernel,
-		u64 size, enum osd_todo todo)
+	obj.partition = pid;
+	obj.id = oid;
+
+	osdblk_make_credential(creds, &obj, osd_req_is_ver1(or));
+
+	osd_req_set_attributes(or, &obj);
+	osd_req_add_set_attr_list(or, &membership, 1);
+
+	ret = osdblk_exec(or, creds);
+	osd_end_request(or);
+
+	if (ret)
+		return ret;
+
+	OSDBLK_INFO("Linked: obj(pid=0x%llx oid=0x%llx) to "
+		    "collection(cid=0x%llx\n)",
+		    _LLU(obj.partition), _LLU(obj.id), _LLU(cid));
+
+	return 0;
+}
+
+static int link_obj_to_collection(char *path, u64 pid, u64 oid, u64 cid)
 {
 	struct osd_dev *od;
 	int ret;
@@ -403,31 +261,7 @@ static int _do(char *path, struct osd_obj_id *obj,
 	if (ret)
 		return ret;
 
-	switch (todo) {
-	case osd_create:
-		ret = do_create(od, obj, size);
-		break;
-	case osd_remove:
-		ret = do_remove(od, obj);
-		break;
-	case osd_resize:
-		ret = do_resize(od, obj, size);
-		break;
-#if 0
-	case osd_execute:
-		ret = do_execute(od, obj, result, kernel);
-		break;
-	case osd_query:
-		ret = do_query(od, obj, kernel);
-		break;
-#endif
-	case osd_create_collection:
-		ret = do_create_collection(od, obj);
-		break;
-	default:
-		usage();
-		return 1;
-	}
+	ret = do_link(od, pid, oid, cid);
 
 	osd_close(od);
 
@@ -438,72 +272,31 @@ static int _do(char *path, struct osd_obj_id *obj,
 int main(int argc, char *argv[])
 {
 	struct option opt[] = {
-		{.name = "create", .has_arg = 0, .flag = NULL, .val = 'c'} ,
-		{.name = "remove", .has_arg = 0, .flag = NULL, .val = 'r'} ,
-		{.name = "resize", .has_arg = 0, .flag = NULL, .val = 's'} ,
-		{.name = "execute", .has_arg = 0, .flag = NULL, .val = 'x'} ,
-		{.name = "query", .has_arg = 0, .flag = NULL, .val = 'q'} ,
-		{.name = "create-collection", .has_arg = 0, .flag = NULL,
-			.val = 'b' },
-
-		{.name = "pid", .has_arg = 1, .flag = NULL, .val =  'p'} ,
-		{.name = "oid", .has_arg = 1, .flag = NULL, .val =  'o'} ,
-		{.name = "length", .has_arg = 1, .flag = NULL, .val = 'l'} ,
-		{.name = "result", .has_arg = 1, .flag = NULL, .val = 'a'} ,
-		{.name = "kernel", .has_arg = 1, .flag = NULL, .val = 'k'} ,
-		{.name = "job", .has_arg = 1, .flag = NULL, .val = 'j' } ,
+		{.name = "pid", .has_arg = 1, .flag = NULL, .val = 'p'},
+		{.name = "oid", .has_arg = 1, .flag = NULL, .val = 'o'},
+		{.name = "cid", .has_arg = 1, .flag = NULL, .val = 'c'},
 
 		{.name = 0, .has_arg = 0, .flag = 0, .val = 0} ,
 	};
-	struct osd_obj_id obj = {.id = 0};
-	struct osd_obj_id result = {.id = 0};
-	struct osd_obj_id kernel = {.id = 0};
-	enum osd_todo todo = osd_none;
-	u64 size = 0;
+	u64 pid, oid, cid;
 	char op;
 	int err;
 
-	while ((op = getopt_long(argc, argv, "csxqp:o:l:k:j:", opt, NULL))
-			!= -1) {
+	pid = oid = cid = 0;
+
+	while ((op = getopt_long(argc, argv, "p:c:o:", opt, NULL)) != -1) {
 		switch (op) {
 		case 'c':
-			todo = osd_create;
-			break;
-		case 'r':
-			todo = osd_remove;
-			break;
-		case 's':
-			todo = osd_resize;
-			break;
-		case 'x':
-			todo = osd_execute;
-			break;
-		case 'q':
-			todo = osd_query;
-			break;
-		case 'b':
-			todo = osd_create_collection;
+			cid = strtoll(optarg, NULL, 0);
 			break;
 		case 'p':
-			obj.partition = strtoll(optarg, NULL, 0);
+			pid = strtoll(optarg, NULL, 0);
 			break;
 		case 'o':
-			obj.id = strtoll(optarg, NULL, 0);
-			break;
-		case 'l':
-			size = ullwithGMK(optarg);
-			break;
-		case 'a':
-			result.id = strtoll(optarg, NULL, 0);
-			break;
-		case 'k':
-			kernel.id = strtoll(optarg, NULL, 0);
-			break;
-		case 'j':
-			kernel.id = strtoll(optarg, NULL, 0);
+			oid = strtoll(optarg, NULL, 0);
 			break;
 		default:
-			printf("check the usage\n");
+			usage();
 			return 1;
 		}
 	}
@@ -516,19 +309,12 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if ((todo == osd_none) || !obj.partition || !obj.id) {
+	if (!pid || !oid || !cid) {
 		usage();
 		return 1;
 	}
 
-#if 0
-	if (todo == osd_execute && (!result.id || !kernel.id)) {
-		usage();
-		return 1;
-	}
-#endif
-
-	err = _do(argv[0], &obj, &result, &kernel, size, todo);
+	err = link_obj_to_collection(argv[0], pid, oid, cid);
 	if (err)
 		OSDBLK_ERR("Error: %s\n", strerror(err));
 

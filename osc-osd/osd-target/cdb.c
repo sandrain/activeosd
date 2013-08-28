@@ -41,6 +41,7 @@ struct cdb_continuation_descriptor {
 	uint32_t length;
 	union {
 		struct sg_list	sglist;
+		struct kernel_execution_params active_params;
 		const void	*desc_specific_hdr;
 	};
 };
@@ -69,6 +70,7 @@ struct command {
 	int senselen;
 };
 
+#if 0
 static int read_active_obj_list(struct active_obj_list *olist, const void *hdr)
 {
 	uint8_t *pos = (uint8_t *) hdr;
@@ -107,6 +109,7 @@ static int read_active_args(struct active_args *args, const void *hdr)
 
 	return 0;
 }
+#endif
 
 static int get_attr_page(struct command *cmd, uint64_t pid, uint64_t oid,
 			 uint8_t isembedded, uint16_t numoid, uint32_t cdb_cont_len)
@@ -658,6 +661,34 @@ out_cdb_err:
 	return ret;
 }
 
+static int cdb_execute_kernel(struct command *cmd)
+{
+	int ret = 0;
+	uint8_t *cdb = cmd->cdb;
+	uint64_t pid = get_ntohll(&cdb[16]);
+	uint64_t oid = get_ntohll(&cdb[24]);
+	struct cdb_continuation_descriptor *desc;
+	struct kernel_execution_params *params;
+
+	if (cmd->cont.num_descriptors != 1)
+		goto out_cdb_err;
+
+	desc = (typeof(desc)) &cmd->cont.descriptors[0];
+	if (desc->type != KERNEL_EXECUTION_PARAM)
+		goto out_cdb_err;
+
+	//params = (typeof(params)) desc->desc_specific_hdr;
+	params = &desc->active_params;
+
+	ret = osd_submit_active_job(cmd->osd, pid, oid, params, cmd->sense);
+	return ret;
+
+out_cdb_err:
+	ret = sense_basic_build(cmd->sense, OSD_SSK_ILLEGAL_REQUEST,
+				OSD_ASC_INVALID_FIELD_IN_CDB, pid, oid);
+	return ret;
+}
+
 /*
  * returns:
  * ==0: success
@@ -1055,19 +1086,6 @@ static inline int std_get_set_attr(struct command *cmd, uint64_t pid,
 }
 
 #if 0
-static int cdb_execute_kernel(struct command *cmd, uint32_t cdb_cont_len,
-				uint8_t* sense)
-{
-	int ret = 0;
-	uint8_t *cdb = cmd->cdb;
-	uint64_t pid = get_ntohll(&cdb[16]);
-	uint64_t in = get_ntohll(&cdb[24]);
-	uint64_t out = get_ntohll(&cdb[32]); /* len of cmp/swap */
-	uint64_t kernel = get_ntohll(&cdb[40]); /* offset in dataout */
-
-	ret = osd_submit_active_job(cmd->osd, pid, in, out, kernel, sense);
-	return ret;
-}
 
 static int cdb_execute_query(struct command *cmd, uint32_t cdb_cont_len,
 				uint8_t *sense)
@@ -1459,7 +1477,6 @@ osd_warning("%s:%d:", __FILE__, __LINE__);
 		uint16_t type = get_ntohs(&desc_hdr->type);
 		uint32_t length = get_ntohl(&desc_hdr->length);
 		uint8_t pad_length = desc_hdr->pad_length & 0x7;
-
 		uint32_t desc_len = length + pad_length;
 
 		if (cont->num_descriptors % 8 == 0) {
@@ -1537,6 +1554,25 @@ osd_warning("%s:%d:", __FILE__, __LINE__);
 osd_warning("%s:%d:", __FILE__, __LINE__);
 			goto out_cdb_err;
 		}
+
+		case KERNEL_EXECUTION_PARAM: {
+			/**
+			 * XXX: is it correct to handle bytes swappings here?
+			 * don't know why handling sg_list above doesn't do
+			 * this.
+			 */
+			const uint8_t *pos = (const uint8_t *) (desc_hdr + 1);
+
+			desc->active_params.input_cid = get_ntohll(pos);
+			desc->active_params.output_cid = get_ntohll(&pos[8]);
+			desc->active_params.args_len = get_ntohl(&pos[16]);
+
+			/** should be freed after command execution */
+			desc->active_params.args
+				= strndup((const char *) &pos[20],
+					desc->active_params.args_len);
+			break;
+	        }
 
 		case EXTENSION_CAPABILITIES: {
 			/* not supported yet */
@@ -2057,16 +2093,20 @@ static void exec_service_action(struct command *cmd)
 		break;
 	}
 	case OSD_EXECUTE_KERNEL: {
+		ret = cdb_execute_kernel(cmd);
+		break;
+#if 0
 		int ret;
 		uint64_t tid = 0;
 		uint64_t pid = get_ntohll(&cdb[16]);
 		uint64_t oid = get_ntohll(&cdb[24]);
 		struct active_task_req req;
+		struct kernel_execution_params *param;
 
 		/**
-		 * this requires 3 descriptors: two object lists and an args.
+		 * this requires a descriptor.
 		 */
-		if (cmd->cont.num_descriptors != 3) {
+		if (cmd->cont.num_descriptors != 1) {
 			ret = sense_basic_build(cmd->sense,
 					OSD_SSK_ILLEGAL_REQUEST,
 					OSD_ASC_INVALID_FIELD_IN_CDB, pid,
@@ -2074,36 +2114,9 @@ static void exec_service_action(struct command *cmd)
 			break;
 		}
 
-		req.k_pid = pid;
-		req.k_oid = oid;
-#if 0
-		req.input = cmd->cont.descriptors[0].desc_specific_hdr;
-		req.output = cmd->cont.descriptors[1].desc_specific_hdr;
-		req.args = cmd->cont.descriptors[2].desc_specific_hdr;
-#endif
-		ret = read_active_obj_list(&req.input,
-				cmd->cont.descriptors[0].desc_specific_hdr);
-		if (ret)
-			break;
-		ret = read_active_obj_list(&req.output,
-				cmd->cont.descriptors[1].desc_specific_hdr);
-		if (ret) {
-			if (req.input.oids)
-				free(req.input.oids);
-			break;
-		}
-		ret = read_active_args(&req.args,
-				cmd->cont.descriptors[2].desc_specific_hdr);
-		if (ret) {
-			if (req.input.oids)
-				free(req.input.oids);
-			if (req.output.oids)
-				free(req.output.oids);
-			break;
-		}
-
 		ret = osd_submit_active_task(cmd->osd, &req, &tid, sense);
 		break;
+#endif
 	}
 	case OSD_EXECUTE_QUERY: {
 		uint64_t tid = get_ntohll(&cdb[32]);

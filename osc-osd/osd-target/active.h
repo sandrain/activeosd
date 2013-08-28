@@ -35,6 +35,7 @@ typedef	void (*active_task_callback_t) (int ret, void *arg);
 extern int osd_init_active_threads(int count);
 extern void osd_exit_active_threads(void);
 
+#if 0
 struct active_task_req {
 	uint64_t k_pid;			/* kernel object */
 	uint64_t k_oid;
@@ -43,10 +44,11 @@ struct active_task_req {
 	struct active_obj_list output;
 	struct active_args args;
 };
+#endif
 
-extern int osd_submit_active_task(struct osd_device *osd,
-				struct active_task_req *req, uint64_t *tid,
-				uint8_t *sense);
+extern int osd_submit_active_job(struct osd_device *osd, uint64_t pid,
+		uint64_t oid, struct kernel_execution_params *params,
+		uint8_t *sense);
 
 extern int osd_query_active_task(struct osd_device *osd, uint64_t tid,
 			uint64_t *outlen, uint8_t *outdata, uint8_t *sense);

@@ -38,7 +38,10 @@ enum {
 };
 
 struct active_task {
-	struct active_task_req req;
+	uint64_t pid;			/* kernel object */
+	uint64_t oid;
+	uint64_t input_cid;		/* input/output collection id */
+	uint64_t output_cid;
 
 	struct osd_device *osd;
 	int status;			/* task status */
@@ -183,6 +186,7 @@ static struct active_task *active_task_hash_search(uint64_t tid)
 	return task;
 }
 
+#if 0
 static struct active_task *alloc_active_task(struct active_task_req *req)
 {
 	struct active_task *task = NULL;
@@ -204,7 +208,29 @@ static struct active_task *alloc_active_task(struct active_task_req *req)
 out:
 	return task;
 }
+#endif
 
+static struct active_task *alloc_active_task(struct osd_device *osd,
+				struct kernel_execution_params *params)
+{
+	struct active_task *task = NULL;
+
+	task = tq_fetch(TQ_FREE);
+	if (!task) {
+		task = malloc(sizeof(*task));
+		if (!task)
+			goto out;
+	}
+
+	active_task_clear(task);
+
+	task->id = active_now();
+	//active_task_hash_insert(task);
+out:
+	return task;
+}
+
+#if 0
 static int open_objects(struct osd_device *osd, struct active_obj_list *olist,
 			int *fdlist, int flags, int mode)
 {
@@ -237,30 +263,38 @@ rollback:
 
 	return errno;
 }
+#endif
 
+#if 0
 static inline int open_input_objects(struct osd_device *osd,
 				struct active_obj_list *olist, int *fdlist)
 {
-	return open_objects(osd, olist, fdlist, O_RDONLY, 0);
+	//return open_objects(osd, olist, fdlist, O_RDONLY, 0);
+	return 0;
 }
 
 static inline int open_output_objects(struct osd_device *osd,
 				struct active_obj_list *olist, int *fdlist)
 {
-	return open_objects(osd, olist, fdlist, O_CREAT|O_EXCL|O_TRUNC, 0600);
+	//return open_objects(osd, olist, fdlist, O_CREAT|O_EXCL|O_TRUNC, 0600);
+	return 0;
 }
+#endif
 
 static inline void close_objects(uint32_t n, int *fdlist)
 {
+#if 0
 	uint32_t i;
 
 	for (i = 0; i < n; i++)
 		(void) close(fdlist[i]);
+#endif
 }
 
 static int run_task(struct active_task *task)
 {
-	int ret;
+	int ret = 0;
+#if 0
 	int *fdp;
 	void *dh;
 	char pathbuf[MAXNAMELEN];
@@ -316,12 +350,14 @@ out_close_objs:
 
 out_close_dl:
 	dlclose(dh);
+#endif
 
 	return ret;
 }
 
 static int active_task_complete(struct active_task *task)
 {
+#if 0
 	struct active_task_req *req = &task->req;
 
 	if (req->input.oids)
@@ -340,6 +376,7 @@ static int active_task_complete(struct active_task *task)
 	 * and the output objects are required to be created prior to the
 	 * kernel execution. hence, we don't need to update the metadata here.
 	 */
+#endif
 }
 
 /**
@@ -515,6 +552,7 @@ void osd_exit_active_threads(void)
 #endif
 }
 
+#if 0
 static int validate_params(struct active_task_req *req)
 {
 	uint32_t i;
@@ -572,6 +610,46 @@ out_cdb_err:
 			      OSD_ASC_INVALID_FIELD_IN_CDB,
 			      req->k_pid, req->k_oid);
 }
+#endif
+
+int osd_submit_active_job(struct osd_device *osd, uint64_t pid, uint64_t oid,
+		struct kernel_execution_params *params, uint8_t *sense)
+{
+	int ret;
+	struct active_task *task = NULL;
+
+	assert(osd && sense && params);
+	if (!(pid >= USEROBJECT_PID_LB && oid >= USEROBJECT_OID_LB))
+		goto out_cdb_err;
+
+	task = alloc_active_task(osd, params);
+	if (!task)
+		goto out_hw_err;
+
+	osd_warning("\n == execute_kernel ==\n"
+		    "task   = { %llu }\n"
+		    "kernel = { %llu, %llu }\n"
+		    "input  = { %llu }\n"
+		    "output = { %llu }\n"
+		    "args   = { %s }\n",
+		    llu(task->id),
+		    llu(pid), llu(oid),
+		    llu(params->input_cid),
+		    llu(params->output_cid),
+		    llu(params->args));
+
+	//tq_append(TQ_WAIT, task);
+
+	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
+			OSD_ASC_SUBMITTED_TASK_ID, pid, oid, task->id);
+
+out_hw_err:
+	return sense_header_build(sense, sizeof(sense), OSD_SSK_HARDWARE_ERROR,
+			OSD_ASC_SYSTEM_RESOURCE_FAILURE, 0);
+out_cdb_err:
+	return sense_build_sdd(sense, OSD_SSK_ILLEGAL_REQUEST,
+			OSD_ASC_INVALID_FIELD_IN_CDB, pid, oid);
+}
 
 int osd_query_active_task(struct osd_device *osd, uint64_t tid,
 			uint64_t *outlen, uint8_t *outdata, uint8_t *sense)
@@ -606,6 +684,6 @@ int osd_query_active_task(struct osd_device *osd, uint64_t tid,
 
 out_cdb_err:
 	return sense_build_sdd(sense, OSD_SSK_ILLEGAL_REQUEST,
-			OSD_ASC_INVALID_FIELD_IN_CDB, task->req.k_pid, tid);
+			OSD_ASC_INVALID_FIELD_IN_CDB, task->pid, task->oid);
 }
 
