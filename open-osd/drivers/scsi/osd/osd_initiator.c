@@ -597,48 +597,6 @@ static void _osd_req_encode_common(struct osd_request *or,
 }
 
 /*
- * Active kernel execution commands.
- */
-
-#if 0
-static inline void _osdv1_req_encode_execute_kernel(struct osd_request *or,
-				__be16 act, struct osd_active_task *task)
-{
-	struct osdv1_cdb *ocdb = &or->cdb.v1;
-	struct osd_obj_id kid = { task->pid, task->k_oid };
-
-	_osdv1_req_encode_common(or, act, &kid, 0, 0);
-}
-
-static inline void _osdv2_req_encode_execute_kernel(struct osd_request *or,
-				__be16 act, struct osd_active_task *task)
-{
-	struct osdv1_cdb *ocdb = &or->cdb.v2;
-	struct osd_obj_id kid = { task->pid, task->k_oid };
-
-	_osdv2_req_encode_common(or, act, &kid, 0, 0);
-}
-
-static inline void _osdv1_req_encode_execute_query(struct osd_request *or,
-						__be16 act, u64 tid)
-{
-	struct osdv1_cdb *ocdb = &or->cdb.v1;
-	struct osd_obj_id task = { 0, tid };
-
-	_osdv1_req_encode_common(or, act, &task, 0, 0);
-}
-
-static inline void _osdv2_req_encode_execute_query(struct osd_request *or,
-						__be16 act, u64 tid)
-{
-	struct osdv1_cdb *ocdb = &or->cdb.v2;
-	struct osd_obj_id task = { 0, tid };
-
-	_osdv2_req_encode_common(or, act, &task, 0, 0);
-}
-#endif
-
-/*
  * Device commands
  */
 /*TODO: void osd_req_set_master_seed_xchg(struct osd_request *, ...); */
@@ -821,66 +779,42 @@ void osd_req_remove_object(struct osd_request *or, struct osd_obj_id *obj)
 }
 EXPORT_SYMBOL(osd_req_remove_object);
 
-#if 0
-void osd_req_execute_kernel(struct osd_request *or,
-				struct osd_active_task *task)
-{
-	struct request_queue *req_q = osd_request_queue(or->osd_dev);
-	struct osdv1_cdb *ocdb = &or->cdb.v1;
-	struct osd_obj_id kid = { task->pid, task->k_oid };
-	struct bio *bio;
-	void *mem;
-	u64 len;
-
-	if (unlikely(osd_req_is_ver1(or)))
-		_osdv1_req_encode_common(or, act, &kid, 0, 0);
-	else
-		_osdv2_req_encode_common(or, act, &kid, 0, 0);
-
-	/** find out what is the total length we need */
-	len = sizeof(u64)*(task->input->len + task->output->len)
-		+ sizeof(u32)*3 + sizeof(char)*task->args->len;
-}
-EXPORT_SYMBOL(osd_req_execute_kernel);
-#endif
-
-#if 0
-void osd_req_execute_query(struct osd_request *or, u64 tid)
-{
-	if (osd_req_is_ver1)
-		_osdv1_req_encode_execute_query(or, OSD_ACT_EXECUTE_QUERY, tid);
-	else
-		_osdv2_req_encode_execute_query(or, OSD_ACT_EXECUTE_QUERY, tid);
-}
-EXPORT_SYMBOL(osd_req_execute_query);
-#endif
-
 /**
  * task execution on active osd
  */
 
-struct osd_active_params_descriptor {
-	struct _continuation_desc_header {
-		__be16	type;
-		u8	reserved1;
-		u8	reserved2:5;
-		u8	padlen:3;
-		__be32	length;
-	} header;
+struct continuation_desc_header {
+	__be16	type;
+	u8	reserved1;
+	u8	reserved2:5;
+	u8	padlen:3;
+	__be32	length;
+} __attribute__((packed));	/** 8 bytes */
 
-	/** descriptor specific data */
+struct osd_active_params_descriptor {
+	struct continuation_desc_header header;
+
+	/** [0x2222: newly defined] descriptor specific data */
 	__be64	input_cid;
 	__be64	output_cid;
 	__be32	args_len;
 	u8	args[0];
 } __attribute__((packed));
 
+struct osd_task_status_descriptor {
+	struct continuation_desc_header header;
+
+	/** [0x0100: object id] descriptor specific data */
+	__be64	partition;	/** 0: don't care */
+	__be64	task_id;
+} __attribute__((packed));	/** 24 bytes */
+
 struct osd_continuation_segment {
 	u8	format;
 	u8	reserved1;
 	__be16	action;
 	__be32	reserved2;
-	u8	integrity[32];
+	u8	integrity[32];	/** 40 bytes */
 
 	/** continuation descriptors */
 	u8	descriptors[0];
@@ -897,6 +831,8 @@ int osd_req_execute_kernel(struct osd_request *or,
 	struct osd_cdb *cdb = &or->cdb;
 	u32 desc_len, cont_len;
 	__be32 *continuation_length;
+
+	_osd_req_encode_common(or, OSD_ACT_EXECUTE_KERNEL, obj, 0, 0);
 
 	/** zero pad for 8B alignment */
 	desc_len = sizeof(*desc) + args_len;
@@ -916,15 +852,13 @@ int osd_req_execute_kernel(struct osd_request *or,
 
 	desc = (typeof(desc)) segment->descriptors;
 
-	desc->header.type = 0x2222;
+	desc->header.type = cpu_to_be16(0x2222);
 	desc->header.length = cpu_to_be32(desc_len - sizeof(desc->header));
 
 	desc->input_cid = cpu_to_be64(icid);
 	desc->output_cid = cpu_to_be64(ocid);
 	desc->args_len = cpu_to_be32(args_len);
 	memcpy((void *) desc->args, args, args_len);
-
-	_osd_req_encode_common(or, OSD_ACT_EXECUTE_KERNEL, obj, 0, 0);
 
 	bio = bio_map_kern(req_q, (void *) segment, cont_len, GFP_KERNEL);
 	if (IS_ERR(bio))
@@ -939,6 +873,74 @@ int osd_req_execute_kernel(struct osd_request *or,
 
 	return 0;
 }
+EXPORT_SYMBOL(osd_req_execute_kernel);
+
+int osd_req_execute_query(struct osd_request *or, struct osd_obj_id *obj,
+				struct osd_active_task_status *ts)
+{
+	struct bio *in_bio, *out_bio;
+	struct request_queue *req_q = osd_request_queue(or->osd_dev);
+	struct osd_continuation_segment *segment;
+	struct osd_task_status_descriptor *desc;
+	struct osd_cdb *cdb = &or->cdb;
+	u32 cont_len, desc_len;
+	__be32 *continuation_length;
+	struct osd_obj_id tmp = { 0, 0 };
+
+	if (!ts)
+		return -EINVAL;
+
+	_osd_req_encode_common(or, OSD_ACT_EXECUTE_QUERY, &tmp, 0,
+				sizeof(*ts));
+
+	/**
+	 * create the continuation cdb
+	 */
+	desc_len = sizeof(*desc);	/* always 8B aligned */
+	cont_len = 40 + desc_len;	/* always aligned: 64B */
+#if 0
+	if (cont_len % 8 != 0)
+		cont_len += 8 - (cont_len % 8);
+#endif
+
+	segment = (typeof(segment)) kzalloc(cont_len, 0);
+	if (unlikely(!segment))
+		return -ENOMEM;
+
+	segment->format = 1;
+	segment->action = OSD_ACT_EXECUTE_QUERY;
+
+	desc = (typeof(desc)) segment->descriptors;
+	desc->header.type = cpu_to_be16(0x0100);
+	desc->header.length = cpu_to_be32(desc_len - sizeof(desc->header));
+	desc->partition = 0;
+	desc->task_id = cpu_to_be64(obj->id);
+
+	out_bio = bio_map_kern(req_q, (void *) segment, cont_len, GFP_KERNEL);
+	if (IS_ERR(out_bio))
+		return PTR_ERR(out_bio);
+
+	out_bio->bi_rw |= (1 << BIO_RW);
+	or->out.bio = out_bio;
+	or->out.total_bytes = cont_len;
+
+	continuation_length = (__be32 *) &cdb->buff[48];
+	*continuation_length = cpu_to_be32(cont_len);
+
+	/**
+	 * data-in buffer for reading the task status
+	 */
+	in_bio = bio_map_kern(req_q, (void *) ts, sizeof(*ts), GFP_KERNEL);
+	if (IS_ERR(in_bio))
+		return PTR_ERR(in_bio);
+
+	in_bio->bi_rw &= ~(1 << BIO_RW);
+	or->in.bio = in_bio;
+	or->in.total_bytes = sizeof(*ts);
+
+	return 0;
+}
+EXPORT_SYMBOL(osd_req_execute_query);
 
 /*TODO: void osd_req_create_multi(struct osd_request *or,
 	struct osd_obj_id *first, struct osd_obj_id_list *list, unsigned nelem);

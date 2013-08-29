@@ -46,7 +46,7 @@ struct active_task_req {
 };
 #endif
 
-extern int osd_submit_active_job(struct osd_device *osd, uint64_t pid,
+extern int osd_submit_active_task(struct osd_device *osd, uint64_t pid,
 		uint64_t oid, struct kernel_execution_params *params,
 		uint8_t *sense);
 

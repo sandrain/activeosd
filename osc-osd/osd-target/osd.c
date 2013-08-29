@@ -1080,7 +1080,7 @@ int osd_open(const char *root, struct osd_device *osd)
 	ret = db_exec_pragma(osd->dbc);
 
 	/** lauch threads for active job execution */
-	osd_init_active_threads(0);
+	//osd_init_active_threads(0);
 
 out:
 	if (ret != 0)

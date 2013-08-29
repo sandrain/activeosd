@@ -258,6 +258,55 @@ static int do_submit_active_task(struct osd_dev *od, u64 pid, u64 kernel,
 	return 0;
 }
 
+static int do_query_active_task(struct osd_dev *od, u64 kernel,
+				struct osd_active_task_status *st)
+{
+	int ret;
+	u8 creds[OSD_CAP_LEN];
+	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
+	struct osd_obj_id obj;
+
+	if (unlikely(!or))
+		return -ENOMEM;
+
+	obj.partition = 0;
+	obj.id = kernel;
+
+	osdblk_make_credential(creds, &obj, osd_req_is_ver1(or));
+
+	ret = osd_req_execute_query(or, &obj, st);
+	if (ret)
+		return ret;
+
+	ret = osdblk_exec(or, creds);
+	osd_end_request(or);
+
+	if (ret)
+		return ret;
+
+	OSDBLK_INFO("query task { 0x0, 0x%llx }\n", _LLU(kernel));
+
+	return 0;
+}
+
+static int query_active_task(char *path, u64 kernel,
+				struct osd_active_task_status *st)
+{
+	struct osd_dev *od;
+	int ret;
+
+	ret = osd_open(path, &od);
+	if (ret)
+		return ret;
+
+	ret = do_query_active_task(od, kernel, st);
+
+	osd_close(od);
+
+	/* osd lib has Kernel API which return negative errors */
+	return -ret;
+}
+
 static int submit_active_task(char *path, u64 pid, u64 kernel, u64 input,
 				u64 output, const char *param_str)
 {
@@ -284,6 +333,7 @@ int main(int argc, char *argv[])
 		{.name = "input", .has_arg = 1, .flag = NULL, .val = 'i'},
 		{.name = "output", .has_arg = 1, .flag = NULL, .val = 'o'},
 		{.name = "args", .has_arg = 1, .flag = NULL, .val = 'a'},
+		{.name = "query", .has_arg = 1, .flag = NULL, .val = 'q' },
 
 		{.name = 0, .has_arg = 0, .flag = 0, .val = 0} ,
 	};
@@ -291,10 +341,11 @@ int main(int argc, char *argv[])
 	char *param_str;
 	char op;
 	int err;
+	int query = 0;
 
 	pid = kernel = input = output = 0;
 
-	while ((op = getopt_long(argc, argv, "p:k:i:o:a:", opt, NULL)) != -1) {
+	while ((op = getopt_long(argc, argv, "p:k:i:o:a:q:", opt, NULL)) != -1) {
 		switch (op) {
 		case 'p':
 			pid = strtoll(optarg, NULL, 0);
@@ -311,6 +362,10 @@ int main(int argc, char *argv[])
 		case 'a':
 			param_str = strdup(optarg);
 			break;
+		case 'q':
+			query = 1;
+			kernel = strtoll(optarg, NULL, 0);
+			break;
 		default:
 			usage();
 			return 1;
@@ -325,12 +380,33 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (!pid || !kernel || !input || !output) {
+	if (query && !kernel) {
+		usage();
+		return 1;
+	}
+	else if (!query && (!pid || !kernel || !input || !output)) {
 		usage();
 		return 1;
 	}
 
-	err = submit_active_task(argv[0], pid, kernel, input, output, param_str);
+	if (query) {
+		struct osd_active_task_status st;
+		err = query_active_task(argv[0], kernel, &st);
+		if (!err) {
+			printf("status = %lu\n"
+				"ret = %lu\n"
+				"submit = %llu\n"
+				"complete = %llu\n",
+				(unsigned long) be32toh(st.status),
+				(unsigned long) be32toh(st.ret),
+				_LLU(be64toh(st.submit)),
+				_LLU(be64toh(st.complete)));
+		}
+	}
+	else {
+		err = submit_active_task(argv[0], pid, kernel, input, output,
+				param_str);
+	}
 	if (err)
 		OSDBLK_ERR("Error: %s\n", strerror(err));
 

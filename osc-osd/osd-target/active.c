@@ -491,6 +491,8 @@ int osd_init_active_threads(int count)
 	int i;
 	struct active_task *tasks = NULL;
 
+	return 0;
+
 	if (count > 0)
 		num_active_workers = count;
 
@@ -509,6 +511,7 @@ int osd_init_active_threads(int count)
 		for (i = 0; i < initial_descriptors; i++)
 			tq_append(TQ_FREE, &tasks[i]);
 
+#if 0
 	for (i = 0; i < num_active_workers; i++) {
 		ret = pthread_create(&active_workers[i], NULL,
 					active_thread_func, NULL);
@@ -519,6 +522,7 @@ int osd_init_active_threads(int count)
 	ret = pthread_create(&active_cleaner, NULL, active_cleaner_func, NULL);
 	if (!ret)
 		goto out;
+#endif
 
 	return ret;
 
@@ -534,6 +538,8 @@ out:
 void osd_exit_active_threads(void)
 {
 	int i;
+
+	return;
 
 	pthread_cancel(active_cleaner);
 	pthread_join(active_cleaner, NULL);
@@ -612,12 +618,13 @@ out_cdb_err:
 }
 #endif
 
-int osd_submit_active_job(struct osd_device *osd, uint64_t pid, uint64_t oid,
+int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 		struct kernel_execution_params *params, uint8_t *sense)
 {
 	int ret;
 	struct active_task *task = NULL;
 
+#if 0
 	assert(osd && sense && params);
 	if (!(pid >= USEROBJECT_PID_LB && oid >= USEROBJECT_OID_LB))
 		goto out_cdb_err;
@@ -642,6 +649,10 @@ int osd_submit_active_job(struct osd_device *osd, uint64_t pid, uint64_t oid,
 
 	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
 			OSD_ASC_SUBMITTED_TASK_ID, pid, oid, task->id);
+#endif
+
+	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
+			OSD_ASC_SUBMITTED_TASK_ID, pid, oid, active_now());
 
 out_hw_err:
 	return sense_header_build(sense, sizeof(sense), OSD_SSK_HARDWARE_ERROR,
@@ -659,6 +670,7 @@ int osd_query_active_task(struct osd_device *osd, uint64_t tid,
 
 	assert(osd && outlen && outdata && sense);
 
+#if 0
 	task = active_task_find_locked(tid);
 	if (!task)
 		goto out_cdb_err;
@@ -668,16 +680,24 @@ int osd_query_active_task(struct osd_device *osd, uint64_t tid,
 	set_htonl(&ts->ret, task->ret);
 	set_htonll(&ts->submit, task->submit);
 	set_htonll(&ts->complete, task->complete);
+#endif
+	ts = (struct active_task_status *) outdata;
+	set_htonl(&ts->status, 3);
+	set_htonl(&ts->ret, 4);
+	set_htonll(&ts->submit, 500);
+	set_htonll(&ts->complete, 600);
 
 	/**
 	 * XXX:
 	 * we currently assume that querying completed tasks implicitly mean
 	 * that the task record can be discarded.
 	 */
+#if 0
 	if (task->complete)
 		task->synced = 1;
 
 	active_task_unlock(task);
+#endif
 
 	*outlen = sizeof(*ts);
 	return OSD_OK;

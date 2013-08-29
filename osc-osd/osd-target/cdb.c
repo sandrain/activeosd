@@ -36,12 +36,18 @@
  * Aggregate parameters for function calls in this file.
  */
 
+struct osd_obj_id {
+	uint64_t partition;
+	uint64_t id;
+};
+
 struct cdb_continuation_descriptor {
 	uint16_t type;
 	uint32_t length;
 	union {
 		struct sg_list	sglist;
 		struct kernel_execution_params active_params;
+		struct osd_obj_id obj;
 		const void	*desc_specific_hdr;
 	};
 };
@@ -680,7 +686,38 @@ static int cdb_execute_kernel(struct command *cmd)
 	//params = (typeof(params)) desc->desc_specific_hdr;
 	params = &desc->active_params;
 
-	ret = osd_submit_active_job(cmd->osd, pid, oid, params, cmd->sense);
+	ret = osd_submit_active_task(cmd->osd, pid, oid, params, cmd->sense);
+	return ret;
+
+out_cdb_err:
+	ret = sense_basic_build(cmd->sense, OSD_SSK_ILLEGAL_REQUEST,
+				OSD_ASC_INVALID_FIELD_IN_CDB, pid, oid);
+	return ret;
+}
+
+static int cdb_execute_query(struct command *cmd)
+{
+	int ret = 0;
+	uint8_t *cdb = cmd->cdb;
+	uint64_t pid = get_ntohll(&cdb[16]);
+	uint64_t oid = get_ntohll(&cdb[24]);
+	struct cdb_continuation_descriptor *desc;
+	struct osd_obj_id *obj;
+
+	if (pid || oid)
+		goto out_cdb_err;
+
+	if (cmd->cont.num_descriptors != 1)
+		goto out_cdb_err;
+
+	desc = (typeof(desc)) &cmd->cont.descriptors[0];
+	if (desc->type != USER_OBJECT)
+		goto out_cdb_err;
+
+	obj = &desc->obj;
+
+	ret = osd_query_active_task(cmd->osd, obj->id, &cmd->used_outlen,
+				cmd->outdata, cmd->sense);
 	return ret;
 
 out_cdb_err:
@@ -1544,9 +1581,16 @@ osd_warning("%s:%d:", __FILE__, __LINE__);
 		}
 
 		case USER_OBJECT: {
+			const uint8_t *pos = (const uint8_t *) (desc_hdr + 1);
+
+			desc->obj.partition = get_ntohll(pos);
+			desc->obj.id = get_ntohll(&pos[8]);
+			break;
+#if 0
 			/* not supported yet */
 osd_warning("%s:%d:", __FILE__, __LINE__);
 			goto out_cdb_err;
+#endif
 		}
 
 		case COPY_USER_OBJECT_SOURCE: {
@@ -2095,34 +2139,9 @@ static void exec_service_action(struct command *cmd)
 	case OSD_EXECUTE_KERNEL: {
 		ret = cdb_execute_kernel(cmd);
 		break;
-#if 0
-		int ret;
-		uint64_t tid = 0;
-		uint64_t pid = get_ntohll(&cdb[16]);
-		uint64_t oid = get_ntohll(&cdb[24]);
-		struct active_task_req req;
-		struct kernel_execution_params *param;
-
-		/**
-		 * this requires a descriptor.
-		 */
-		if (cmd->cont.num_descriptors != 1) {
-			ret = sense_basic_build(cmd->sense,
-					OSD_SSK_ILLEGAL_REQUEST,
-					OSD_ASC_INVALID_FIELD_IN_CDB, pid,
-					oid);
-			break;
-		}
-
-		ret = osd_submit_active_task(cmd->osd, &req, &tid, sense);
-		break;
-#endif
 	}
 	case OSD_EXECUTE_QUERY: {
-		uint64_t tid = get_ntohll(&cdb[32]);
-
-		ret = osd_query_active_task(cmd->osd, tid, &cmd->used_outlen,
-					cmd->outdata, sense);
+		ret = cdb_execute_query(cmd);
 		break;
 	}
 	case OSD_CAS: {
@@ -2174,6 +2193,7 @@ static int calc_max_out_len(struct command *cmd)
 	case OSD_CAS:
 	case OSD_FA:
 	case OSD_GEN_CAS:
+	case OSD_EXECUTE_QUERY:
 		cmd->outlen = get_ntohll(&cmd->cdb[32]);
 		break;
 	case OSD_SET_MASTER_KEY:
