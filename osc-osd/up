@@ -115,7 +115,7 @@ echo "================ `date` =========================" >> $LOG_FILE
 # First run the otgtd daemon in forgraound
 # -f - forgraound
 # -d - debug level
-# DEBUG="-d 9"
+#DEBUG="-d 9"
 DEBUG=""
 $OTGTD $DEBUG -f &>> $LOG_FILE  &
 

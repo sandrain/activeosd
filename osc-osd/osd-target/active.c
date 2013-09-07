@@ -37,11 +37,15 @@ enum {
 	ACTIVE_TASK_COMPLETE,
 };
 
+struct active_task;
+typedef	void (*active_task_callback_t) (struct active_task *task, void *arg);
+
 struct active_task {
 	uint64_t pid;			/* kernel object */
 	uint64_t oid;
 	uint64_t input_cid;		/* input/output collection id */
 	uint64_t output_cid;
+	const char *args;
 
 	struct osd_device *osd;
 	int status;			/* task status */
@@ -186,31 +190,8 @@ static struct active_task *active_task_hash_search(uint64_t tid)
 	return task;
 }
 
-#if 0
-static struct active_task *alloc_active_task(struct active_task_req *req)
-{
-	struct active_task *task = NULL;
-
-	task = tq_fetch(TQ_FREE);
-	if (!task) {
-		task = malloc(sizeof(*task));
-		if (!task)
-			goto out;
-	}
-
-	active_task_clear(task);
-
-	task->id = active_now();
-	task->req = *req;
-
-	active_task_hash_insert(task);
-
-out:
-	return task;
-}
-#endif
-
 static struct active_task *alloc_active_task(struct osd_device *osd,
+				uint64_t pid, uint64_t oid,
 				struct kernel_execution_params *params)
 {
 	struct active_task *task = NULL;
@@ -224,30 +205,34 @@ static struct active_task *alloc_active_task(struct osd_device *osd,
 
 	active_task_clear(task);
 
-	task->id = active_now();
-	//active_task_hash_insert(task);
+	task->pid = pid;
+	task->oid = oid;
+	task->input_cid = params->input_cid;
+	task->output_cid = params->output_cid;
+	task->osd = osd;
+	task->status = ACTIVE_TASK_WAITING;
+	task->args = params->args;
+
+	task->id = task->submit = active_now();
+
+	active_task_hash_insert(task);
 out:
 	return task;
 }
 
-#if 0
-static int open_objects(struct osd_device *osd, struct active_obj_list *olist,
-			int *fdlist, int flags, int mode)
+static inline int open_objects(struct osd_device *osd, uint64_t pid,
+				uint64_t len, uint64_t *olist, int *fdlist,
+				int flags, int mode)
 {
 	int fd;
 	uint32_t i;
-	uint32_t count;
-	uint64_t pid;
 	char pathbuf[MAXNAMELEN];
 
 	if (!olist || !fdlist)
-		return EINVAL;
+		return -EINVAL;
 
-	pid = olist->pid;
-	count = olist->num_entries;
-
-	for (i = 0; i < count; i++) {
-		dfile_name(pathbuf, osd->root, pid, olist->oids[i]);
+	for (i = 0; i < len; i++) {
+		dfile_name(pathbuf, osd->root, pid, olist[i]);
 		fd = open(pathbuf, flags, mode);
 		if (fd < 0)
 			goto rollback;
@@ -261,80 +246,90 @@ rollback:
 	while (--i >= 0)
 		fdlist[i];
 
-	return errno;
-}
-#endif
-
-#if 0
-static inline int open_input_objects(struct osd_device *osd,
-				struct active_obj_list *olist, int *fdlist)
-{
-	//return open_objects(osd, olist, fdlist, O_RDONLY, 0);
-	return 0;
+	return -errno;
 }
 
-static inline int open_output_objects(struct osd_device *osd,
-				struct active_obj_list *olist, int *fdlist)
+static inline int open_input_objects(struct osd_device *osd, uint64_t pid,
+			uint64_t len, uint64_t *olist, int *fdlist)
 {
-	//return open_objects(osd, olist, fdlist, O_CREAT|O_EXCL|O_TRUNC, 0600);
-	return 0;
+	return open_objects(osd, pid, len, olist, fdlist, O_RDONLY, 0);
 }
-#endif
+
+static inline int open_output_objects(struct osd_device *osd, uint64_t pid,
+			uint64_t len, uint64_t *olist, int *fdlist)
+{
+	return open_objects(osd, pid, len, olist, fdlist,
+				O_CREAT|O_EXCL|O_TRUNC, 0600);
+}
 
 static inline void close_objects(uint32_t n, int *fdlist)
 {
-#if 0
 	uint32_t i;
 
 	for (i = 0; i < n; i++)
 		(void) close(fdlist[i]);
-#endif
 }
 
 static int run_task(struct active_task *task)
 {
 	int ret = 0;
-#if 0
 	int *fdp;
 	void *dh;
+	uint64_t iolen, oolen;
+	uint64_t *iolist, *oolist;
 	char pathbuf[MAXNAMELEN];
 	struct active_params param;
 	struct osd_device *osd = task->osd;
-	struct active_task_req *req = &task->req;
 	active_kernel_t active_kernel;
 
 	active_task_set_status(task, ACTIVE_TASK_RUNNING);
 
-	dfile_name(pathbuf, osd->root, req->k_pid, req->k_oid);
+	if (task->output_cid == 0)	/* sliently skip this */
+		return 0;
+
+	dfile_name(pathbuf, osd->root, task->pid, task->oid);
 	dh = dlopen(pathbuf, RTLD_LAZY);
 	if (!dh)
-		return EINVAL;
+		return -EINVAL;
 	dlerror();
 
-	param.n_infiles = req->input.num_entries;
-	param.n_outfiles = req->output.num_entries;
-	param.args = req->args.args;
+	ret = coll_get_full_obj_list(osd->dbc, task->pid, task->input_cid,
+				&iolist, &iolen);
+	if (ret)
+		goto out_close_dl;
+
+	ret = coll_get_full_obj_list(osd->dbc, task->pid, task->output_cid,
+				&oolist, &oolen);
+	if (ret)
+		goto out_free_ic;
+
+	param.n_infiles = iolen;
+	param.n_outfiles = oolen;
+	param.args = task->args;
 
 	fdp = calloc(param.n_infiles + param.n_outfiles, sizeof(int));
 	if (!fdp) {
-		ret = ENOMEM;
-		goto out_close_dl;
+		ret = -ENOMEM;
+		goto out_free_oc;
 	}
 
 	param.fdin = fdp;
 	param.fdout = &param.fdin[param.n_infiles];
 
-	ret = open_input_objects(task->osd, &req->input, param.fdin);
+	ret = open_input_objects(task->osd, task->pid, iolen, iolist,
+				param.fdin);
 	if (ret)
-		goto out_close_objs;
-	ret = open_output_objects(task->osd, &req->output, param.fdout);
+		goto out_free_fdp;
+
+	ret = open_output_objects(task->osd, task->pid, oolen, oolist,
+				param.fdout);
 	if (ret)
-		goto out_close_objs;
+		goto out_close_io;
 
 	*(void **) (&active_kernel) = dlsym(dh, "execute_kernel");
 	if (NULL != dlerror()) {
 		ret = errno;
-		goto out_close_objs;
+		goto out_close_oo;
 	}
 
 	ret = (*active_kernel) (&param);
@@ -342,31 +337,25 @@ static int run_task(struct active_task *task)
 
 	ret = 0;	/** success */
 
-out_close_objs:
-	close_objects(req->output.num_entries, param.fdout);
-	close_objects(req->input.num_entries, param.fdin);
-
-	free(fdp);
-
+out_close_oo:
+	close_objects(param.n_outfiles, param.fdout);
+out_close_io:
+	close_objects(param.n_infiles, param.fdin);
+out_free_fdp:
+	if (fdp)
+		free(fdp);
+out_free_oc:
+	free(oolist);
+out_free_ic:
+	free(iolist);
 out_close_dl:
 	dlclose(dh);
-#endif
 
 	return ret;
 }
 
 static int active_task_complete(struct active_task *task)
 {
-#if 0
-	struct active_task_req *req = &task->req;
-
-	if (req->input.oids)
-		free(req->input.oids);
-	if (req->output.oids)
-		free(req->output.oids);
-	if (req->args.args)
-		free((void *) req->args.args);
-
 	active_task_set_status(task, ACTIVE_TASK_COMPLETE);
 	tq_append(TQ_COMPLETE, task);
 
@@ -376,7 +365,6 @@ static int active_task_complete(struct active_task *task)
 	 * and the output objects are required to be created prior to the
 	 * kernel execution. hence, we don't need to update the metadata here.
 	 */
-#endif
 }
 
 /**
@@ -387,9 +375,12 @@ static int active_task_complete(struct active_task *task)
 
 static int active_task_sync_db(struct active_task *task)
 {
-	return ENOSYS;
+	return -ENOSYS;
 }
 
+/**
+ * this function returns task descriptor with lock held.
+ */
 static inline struct active_task *active_task_find_locked(uint64_t tid)
 {
 	struct active_task *task;
@@ -431,8 +422,8 @@ static void *active_thread_func(void *arg)
 		}
 
 		ret = run_task(task);
-		if (!ret && task->callback)
-			(*task->callback)(task->ret, task->callback_arg);
+		if (task->callback)
+			(*task->callback)(task, task->callback_arg);
 
 		active_task_complete(task);
 	}
@@ -467,7 +458,15 @@ static void *active_cleaner_func(void *arg)
 
 		now = active_now();
 
+#if 0
 		if (task->synced) {
+			ret = active_task_sync_db(task);
+			if (ret)
+				tq_append(TQ_COMPLETE, task);
+			else {
+				active_task_free(task);
+			}
+
 			/** more than 20 mins passed? */
 			if (task->complete < now + 1200)
 				active_task_free(task);
@@ -480,6 +479,7 @@ static void *active_cleaner_func(void *arg)
 
 			tq_append(TQ_COMPLETE, task);
 		}
+#endif
 	}
 
 	return (void *) 0;
@@ -511,7 +511,6 @@ int osd_init_active_threads(int count)
 		for (i = 0; i < initial_descriptors; i++)
 			tq_append(TQ_FREE, &tasks[i]);
 
-#if 0
 	for (i = 0; i < num_active_workers; i++) {
 		ret = pthread_create(&active_workers[i], NULL,
 					active_thread_func, NULL);
@@ -522,7 +521,6 @@ int osd_init_active_threads(int count)
 	ret = pthread_create(&active_cleaner, NULL, active_cleaner_func, NULL);
 	if (!ret)
 		goto out;
-#endif
 
 	return ret;
 
@@ -558,65 +556,6 @@ void osd_exit_active_threads(void)
 #endif
 }
 
-#if 0
-static int validate_params(struct active_task_req *req)
-{
-	uint32_t i;
-	uint64_t tmp;
-
-	if (!(req->k_pid >= USEROBJECT_PID_LB
-			&& req->k_oid >= USEROBJECT_OID_LB))
-	{
-		return -1;
-	}
-
-	for (i = 0; i < req->input.num_entries; i++) {
-		tmp = req->input.oids[i];
-		if (tmp < USEROBJECT_OID_LB)
-			return -1;
-		if (tmp == req->k_oid)
-			return -1;
-	}
-
-	for (i = 0; i < req->output.num_entries; i++) {
-		tmp = req->input.oids[i];
-		if (tmp < USEROBJECT_OID_LB)
-			return -1;
-		if (tmp == req->k_oid)
-			return -1;
-	}
-
-	return 0;
-}
-
-int osd_submit_active_task(struct osd_device *osd,
-			struct active_task_req *req, uint64_t *tid,
-			uint8_t *sense)
-{
-	struct active_task *task = NULL;
-
-	assert(osd && sense && req);
-
-	if (validate_params(req) < 0)
-		goto out_cdb_err;
-
-	task = alloc_active_task(req);
-	task->osd = osd;
-
-	active_task_set_status(task, ACTIVE_TASK_WAITING);
-	tq_append(TQ_WAIT, task);
-
-	*tid = task->id;
-	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
-				OSD_ASC_SUBMITTED_TASK_ID,
-				req->k_pid, req->k_oid, task->id);
-
-out_cdb_err:
-	return sense_build_sdd(sense, OSD_SSK_ILLEGAL_REQUEST,
-			      OSD_ASC_INVALID_FIELD_IN_CDB,
-			      req->k_pid, req->k_oid);
-}
-#endif
 
 int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 		struct kernel_execution_params *params, uint8_t *sense)
@@ -624,15 +563,15 @@ int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 	int ret;
 	struct active_task *task = NULL;
 
-#if 0
 	assert(osd && sense && params);
 	if (!(pid >= USEROBJECT_PID_LB && oid >= USEROBJECT_OID_LB))
 		goto out_cdb_err;
 
-	task = alloc_active_task(osd, params);
+	task = alloc_active_task(osd, pid, oid, params);
 	if (!task)
 		goto out_hw_err;
 
+#if 0
 	osd_warning("\n == execute_kernel ==\n"
 		    "task   = { %llu }\n"
 		    "kernel = { %llu, %llu }\n"
@@ -644,15 +583,12 @@ int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 		    llu(params->input_cid),
 		    llu(params->output_cid),
 		    llu(params->args));
+#endif
 
-	//tq_append(TQ_WAIT, task);
+	tq_append(TQ_WAIT, task);
 
 	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
 			OSD_ASC_SUBMITTED_TASK_ID, pid, oid, task->id);
-#endif
-
-	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
-			OSD_ASC_SUBMITTED_TASK_ID, pid, oid, active_now());
 
 out_hw_err:
 	return sense_header_build(sense, sizeof(sense), OSD_SSK_HARDWARE_ERROR,
@@ -670,7 +606,6 @@ int osd_query_active_task(struct osd_device *osd, uint64_t tid,
 
 	assert(osd && outlen && outdata && sense);
 
-#if 0
 	task = active_task_find_locked(tid);
 	if (!task)
 		goto out_cdb_err;
@@ -680,24 +615,16 @@ int osd_query_active_task(struct osd_device *osd, uint64_t tid,
 	set_htonl(&ts->ret, task->ret);
 	set_htonll(&ts->submit, task->submit);
 	set_htonll(&ts->complete, task->complete);
-#endif
-	ts = (struct active_task_status *) outdata;
-	set_htonl(&ts->status, 3);
-	set_htonl(&ts->ret, 4);
-	set_htonll(&ts->submit, 500);
-	set_htonll(&ts->complete, 600);
 
 	/**
 	 * XXX:
 	 * we currently assume that querying completed tasks implicitly mean
 	 * that the task record can be discarded.
 	 */
-#if 0
 	if (task->complete)
 		task->synced = 1;
 
 	active_task_unlock(task);
-#endif
 
 	*outlen = sizeof(*ts);
 	return OSD_OK;

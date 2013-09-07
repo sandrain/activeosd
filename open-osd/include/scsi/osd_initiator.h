@@ -461,4 +461,27 @@ int osd_req_add_get_attr_page(struct osd_request *or,
 	u32 page_id, void *attr_page_data, unsigned max_page_len,
 	const struct osd_attr *set_one);
 
+/**
+ * the active kernel function prototype.
+ *
+ * eventually, the kernel function should be able to work with multiple # of
+ * input objects and output objects.
+ */
+
+#ifndef	__KERNEL__
+
+#include <stdint.h>
+
+struct active_params {
+	uint32_t n_infiles;
+	uint32_t n_outfiles;
+	int *fdin;
+	int *fdout;
+	const char *args;
+};
+
+typedef int (*active_kernel_t) (struct active_params *);
+
+#endif
+
 #endif /* __OSD_LIB_H__ */

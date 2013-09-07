@@ -55,4 +55,25 @@ int coll_get_oids_in_cid(struct db_context *dbc, uint64_t pid, uint64_t cid,
 int coll_copyoids(struct db_context *dbc, uint64_t pid, uint64_t dest_cid,
 		  uint64_t source_cid);
 
+/**
+ * XXX: quick and dirty appended for active task executions.
+ */
+
+int coll_get_obj_count(struct db_context *dbc, uint64_t pid, uint64_t cid,
+			uint64_t *count);
+
+/**
+ * 
+ *
+ * @dbc
+ * @pid
+ * @cid
+ * @obj_list: [out] object list, the space should be freed by the caller.
+ * @len: [out] number of elements in @obj_list.
+ *
+ * returns 0 on success.
+ */
+int coll_get_full_obj_list(struct db_context *dbc, uint64_t pid, uint64_t cid,
+			uint64_t **obj_list, uint64_t *len);
+
 #endif /* __COLL_H */

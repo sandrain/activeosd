@@ -81,24 +81,17 @@ CREATE INDEX val_ind ON attr (value);
 --
 CREATE TABLE tasks (
 	tid	INTEGER NOT NULL,
-	kpid	INTEGER NOT NULL REFERENCES obj(pid),
-	koid	INTEGER NOT NULL REFERENCES obj(oid),
+	pid	INTEGER NOT NULL REFERENCES obj(pid),
+	oid	INTEGER NOT NULL REFERENCES obj(oid),
+	icid	INTEGER NOT NULL REFERENCES coll(cid),
+	ocid	INTEGER NOT NULL REFERENCES coll(cid),
 	submit	INTEGER NOT NULL,
+	begin	INTEGER NOT NULL,
 	complete INTEGER NOT NULL,
+	ret	INTEGER NOT NULL DEFAULT 0,
 	status	INTEGER NOT NULL DEFAULT 0,
+	args	TEXT NOT NULL DEFAULT '',
 
 	PRIMARY KEY (tid ASC)
 );
-
-create table taskios (
-	id	INTEGER NOT NULL,
-	tid	INTEGER NOT NULL REFERENCES tasks(tid),
-	type	INTEGER NOT NULL,
-	pid	INTEGER NOT NULL REFERENCES obj(pid),
-	oid	INTEGER NOT NULL REFERENCES obj(oid),
-
-	PRIMARY KEY (id ASC)
-);
-
-CREATE INDEX tio_tid ON taskios (tid);
 

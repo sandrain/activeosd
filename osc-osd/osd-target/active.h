@@ -27,7 +27,6 @@ struct active_params {
 };
 
 typedef int (*active_kernel_t) (struct active_params *);
-typedef	void (*active_task_callback_t) (int ret, void *arg);
 
 /** change these functions' attributes to constructor/destructor? */
 /** for @count, pass '0' to use default number of threads. */

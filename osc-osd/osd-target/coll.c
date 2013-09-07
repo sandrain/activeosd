@@ -45,6 +45,8 @@ struct coll_tab {
 	sqlite3_stmt *emptycid; /* is collection empty? */
 	sqlite3_stmt *getcid;   /* get collection */
 	sqlite3_stmt *getoids;  /* get objects in a collection */
+	sqlite3_stmt *getoidcnt;/* get number of objects in a collection */
+	sqlite3_stmt *getalloids; /* get all objects in a collection */
 	sqlite3_stmt *copyoids; /* copy oids from one collection to another */
 };
 
@@ -129,6 +131,18 @@ int coll_initialize(struct db_context *dbc)
 	if (ret != SQLITE_OK)
 		goto out_finalize_getoids;
 
+	sprintf(SQL, "SELECT COUNT(*) FROM %s WHERE pid = ? AND cid = ?",
+		dbc->coll->name);
+	ret = sqlite3_prepare(dbc->db, SQL, -1, &dbc->coll->getoidcnt, NULL);
+	if (ret != SQLITE_OK)
+		goto out_finalize_getoidcnt;
+
+	sprintf(SQL, "SELECT oid FROM %s WHERE pid = ? AND cid = ?",
+		dbc->coll->name);
+	ret = sqlite3_prepare(dbc->db, SQL, -1, &dbc->coll->getalloids, NULL);
+	if (ret != SQLITE_OK)
+		goto out_finalize_getalloids;
+
 	sprintf(SQL, "INSERT INTO %s SELECT ?, ?, oid, 0 FROM %s WHERE "
 		"pid = ? AND cid = ?;", dbc->coll->name, dbc->coll->name);
 	ret = sqlite3_prepare(dbc->db, SQL, -1, &dbc->coll->copyoids, NULL);
@@ -140,6 +154,12 @@ int coll_initialize(struct db_context *dbc)
 
 out_finalize_copyoids:
 	db_sqfinalize(dbc->db, dbc->coll->copyoids, SQL);
+	SQL[0] = '\0';
+out_finalize_getalloids:
+	db_sqfinalize(dbc->db, dbc->coll->getalloids, SQL);
+	SQL[0] = '\0';
+out_finalize_getoidcnt:
+	db_sqfinalize(dbc->db, dbc->coll->getoidcnt, SQL);
 	SQL[0] = '\0';
 out_finalize_getoids:
 	db_sqfinalize(dbc->db, dbc->coll->getoids, SQL);
@@ -452,5 +472,89 @@ int coll_get_cap(sqlite3 *db, uint64_t pid, uint64_t oid, void *outbuf,
 		 uint64_t outlen, uint8_t listfmt, uint32_t *used_outlen)
 {
 	return OSD_ERROR;
+}
+
+int coll_get_obj_count(struct db_context *dbc, uint64_t pid, uint64_t cid,
+			uint64_t *count)
+{
+	int ret = 0;
+	sqlite3_stmt *stmt = NULL;
+
+	assert(dbc && dbc->db && dbc->coll && dbc->coll->getoidcnt);
+
+	stmt = dbc->coll->getoidcnt;
+	ret |= sqlite3_bind_int64(stmt, 1, pid);
+	ret |= sqlite3_bind_int64(stmt, 2, cid);
+
+	do {
+		ret = sqlite3_step(stmt);
+	} while (ret = SQLITE_BUSY);
+
+	if (ret != SQLITE_ROW)
+		ret = -EIO;
+	else {
+		*count = sqlite3_column_int64(stmt, 0);
+		ret = 0;
+	}
+
+	sqlite3_reset(stmt);
+	return ret;
+}
+
+int coll_get_full_obj_list(struct db_context *dbc, uint64_t pid, uint64_t cid,
+			uint64_t **obj_list, uint64_t *len)
+{
+	int ret = 0;
+	uint64_t i, count = 0;
+	uint64_t *buf;
+	sqlite3_stmt *stmt = NULL;
+
+	assert(dbc && dbc->db && dbc->coll && dbc->coll->getalloids);
+
+	ret = coll_get_obj_count(dbc, pid, cid, &count);
+	if (ret)
+		return ret;
+
+	buf = malloc(sizeof(*buf) * count);
+	if (!buf)
+		return -ENOMEM;
+
+	stmt = dbc->coll->getalloids;
+	ret |= sqlite3_bind_int64(stmt, 1, pid);
+	ret |= sqlite3_bind_int64(stmt, 2, cid);
+
+	i = 0;
+	while (1) {
+		ret = sqlite3_step(stmt);
+		if (ret == SQLITE_BUSY)
+			continue;
+
+		if (ret != SQLITE_ROW)
+			break;
+
+		/**
+		 * new member object added to the collection while doing this.
+		 */
+		if (i == count) {
+			count++;
+			buf = realloc(buf, sizeof(*buf)*count);
+			if (!buf) {
+				ret = -ENOMEM;
+				break;
+			}
+		}
+
+		buf[i++] = sqlite3_column_int64(stmt, 0);
+	}
+
+	if (ret == SQLITE_DONE) {
+		*obj_list = buf;
+		*len = count;
+	}
+	else
+		free(buf);	/** failed, free the space */
+
+	sqlite3_reset(stmt);
+	return ret;
 }
 

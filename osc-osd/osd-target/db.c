@@ -57,7 +57,7 @@ static int db_check_tables(struct db_context *dbc)
 	int ret = 0;
 	char SQL[MAXSQLEN];
 	char *err = NULL;
-	const char *tables[] = {"attr", "obj", "coll"};
+	const char *tables[] = {"attr", "obj", "coll", "tasks"};
 	struct array arr = {ARRAY_SIZE(tables), tables};
 
 	sprintf(SQL, "SELECT name FROM sqlite_master WHERE type='table' "
