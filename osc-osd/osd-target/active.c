@@ -82,8 +82,24 @@ static pthread_t active_cleaner;
 
 static hash_table_t *task_hash;
 
-static uint32_t id_counter = 0;		/** access with lock_free hold */
 static const int initial_descriptors = 20;
+
+/**
+ * task id counter
+ */
+static uint64_t id_counter = 1;
+static pthread_mutex_t counter_lock;
+
+static inline uint64_t active_task_next_id(void)
+{
+	uint64_t ret;
+
+	pthread_mutex_lock(&counter_lock);
+	ret = id_counter++;
+	pthread_mutex_unlock(&counter_lock);
+
+	return ret;
+}
 
 /**
  * simple tasks queues and accessors.
@@ -214,7 +230,8 @@ static struct active_task *alloc_active_task(struct osd_device *osd,
 	task->status = ACTIVE_TASK_WAITING;
 	task->args = params->args;
 
-	task->id = task->submit = active_now();
+	task->id = active_task_next_id();
+	task->submit = active_now();
 
 	/** returns 1 on success */
 	active_task_hash_insert(task);
@@ -516,6 +533,8 @@ int osd_init_active_threads(int count)
 		if (ret)
 			goto out;
 	}
+
+	pthread_mutex_init(&counter_lock, NULL);
 
 #if 0
 	ret = pthread_create(&active_cleaner, NULL, active_cleaner_func, NULL);
