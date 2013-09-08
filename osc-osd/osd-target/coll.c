@@ -488,7 +488,7 @@ int coll_get_obj_count(struct db_context *dbc, uint64_t pid, uint64_t cid,
 
 	do {
 		ret = sqlite3_step(stmt);
-	} while (ret = SQLITE_BUSY);
+	} while (ret == SQLITE_BUSY);
 
 	if (ret != SQLITE_ROW)
 		ret = -EIO;
@@ -550,6 +550,7 @@ int coll_get_full_obj_list(struct db_context *dbc, uint64_t pid, uint64_t cid,
 	if (ret == SQLITE_DONE) {
 		*obj_list = buf;
 		*len = count;
+		ret = 0;
 	}
 	else
 		free(buf);	/** failed, free the space */

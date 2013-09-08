@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 #include <pthread.h>
 #include <dlfcn.h>
 #include <unistd.h>
@@ -25,7 +26,8 @@
 #include "osd-sense.h"
 #include "target-sense.h"
 #include "list.h"
-#include "simplehash.h"
+#define	__USE_HASH_LOCKS__
+#include "simhash.h"
 #include "active.h"
 
 #define DEFAULT_IDLE_SLEEP	5000	/** in usec */
@@ -78,8 +80,7 @@ static int num_active_workers = DEFAULT_ACTIVE_WORKERS;
 static pthread_t active_workers[DEFAULT_ACTIVE_WORKERS];
 static pthread_t active_cleaner;
 
-static afs_htable __task_hash, *task_hash;
-static pthread_mutex_t task_hash_lock;
+static hash_table_t *task_hash;
 
 static uint32_t id_counter = 0;		/** access with lock_free hold */
 static const int initial_descriptors = 20;
@@ -162,32 +163,32 @@ static inline void active_task_clear(struct active_task *task)
 	pthread_mutex_init(&task->lock, NULL);
 }
 
-static int active_task_hash_insert(struct active_task *task)
-{
-	int ret;
-	char buf[32];
-
-	sprintf(buf, "%x", task->id);
-
-	pthread_mutex_lock(&task_hash_lock);
-	ret = afs_hash_insert(task_hash, buf, task);
-	pthread_mutex_unlock(&task_hash_lock);
-
-	return ret;
-}
-
 static struct active_task *active_task_hash_search(uint64_t tid)
 {
+	return (struct active_task *) hash_find(task_hash, (void *) &tid,
+						sizeof(tid));
+
+#if 0
 	struct active_task *task = NULL;
 	char buf[32];
 
-	sprintf(buf, "%x", tid);
+	sprintf(buf, "%llx", tid);
 
 	pthread_mutex_lock(&task_hash_lock);
 	task = (struct active_task *) afs_hash_search(task_hash, buf);
 	pthread_mutex_unlock(&task_hash_lock);
 
 	return task;
+#endif
+}
+
+/** returns 1 on success */
+static int active_task_hash_insert(struct active_task *task)
+{
+	if (!task)
+		return -EINVAL;
+
+	return hash_insert(task_hash, &task->id, sizeof(task->id), task);
 }
 
 static struct active_task *alloc_active_task(struct osd_device *osd,
@@ -215,6 +216,7 @@ static struct active_task *alloc_active_task(struct osd_device *osd,
 
 	task->id = task->submit = active_now();
 
+	/** returns 1 on success */
 	active_task_hash_insert(task);
 out:
 	return task;
@@ -244,7 +246,7 @@ static inline int open_objects(struct osd_device *osd, uint64_t pid,
 
 rollback:
 	while (--i >= 0)
-		fdlist[i];
+		close(fdlist[i]);
 
 	return -errno;
 }
@@ -259,7 +261,7 @@ static inline int open_output_objects(struct osd_device *osd, uint64_t pid,
 			uint64_t len, uint64_t *olist, int *fdlist)
 {
 	return open_objects(osd, pid, len, olist, fdlist,
-				O_CREAT|O_EXCL|O_TRUNC, 0600);
+				O_CREAT|O_WRONLY|O_TRUNC, 0600);
 }
 
 static inline void close_objects(uint32_t n, int *fdlist)
@@ -491,8 +493,6 @@ int osd_init_active_threads(int count)
 	int i;
 	struct active_task *tasks = NULL;
 
-	return 0;
-
 	if (count > 0)
 		num_active_workers = count;
 
@@ -501,10 +501,9 @@ int osd_init_active_threads(int count)
 		pthread_mutex_init(&__tql[i], NULL);
 	}
 
-	task_hash = afs_hash_init(100, &__task_hash);
+	task_hash = create_hash_table(100);
 	if (!task_hash)
 		return -ENOMEM;
-	pthread_mutex_init(&task_hash_lock, NULL);
 
 	tasks = calloc(initial_descriptors, sizeof(*tasks));
 	if (tasks)
@@ -518,14 +517,16 @@ int osd_init_active_threads(int count)
 			goto out;
 	}
 
+#if 0
 	ret = pthread_create(&active_cleaner, NULL, active_cleaner_func, NULL);
 	if (!ret)
 		goto out;
+#endif
 
 	return ret;
 
 out:
-	afs_hash_exit(task_hash);
+	destroy_hash_table(task_hash);
 
 	for ( ; i >= 0; i--)
 		pthread_cancel(active_workers[i]);
@@ -547,7 +548,7 @@ void osd_exit_active_threads(void)
 	for (i = 0; i < num_active_workers; i++)
 		pthread_join(active_workers[i], NULL);
 
-	afs_hash_exit(task_hash);
+	destroy_hash_table(task_hash);
 
 #if 0
 	/** TODO: space for on-going job descriptors will be lost. have to
@@ -598,7 +599,7 @@ out_cdb_err:
 			OSD_ASC_INVALID_FIELD_IN_CDB, pid, oid);
 }
 
-int osd_query_active_task(struct osd_device *osd, uint64_t tid,
+int osd_query_active_task(struct osd_device *osd, uint64_t pid, uint64_t tid,
 			uint64_t *outlen, uint8_t *outdata, uint8_t *sense)
 {
 	struct active_task *task = NULL;
@@ -631,6 +632,6 @@ int osd_query_active_task(struct osd_device *osd, uint64_t tid,
 
 out_cdb_err:
 	return sense_build_sdd(sense, OSD_SSK_ILLEGAL_REQUEST,
-			OSD_ASC_INVALID_FIELD_IN_CDB, task->pid, task->oid);
+			OSD_ASC_INVALID_FIELD_IN_CDB, pid, tid);
 }
 

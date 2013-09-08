@@ -196,7 +196,7 @@ static int osdblk_exec(struct osd_request *or, u8 *cred)
 	ret = osd_req_decode_sense(or, &osi);
 
 	if (ret) { /* translate to Linux codes */
-		if (osi.key == scsi_sk_vendor_specific && 
+		if (osi.key == scsi_sk_vendor_specific &&
 			osi.additional_code == osd_submitted_task_id)
 		{
 			printf("task id = %llu\n", _LLU(osi.command_info));
@@ -338,7 +338,7 @@ int main(int argc, char *argv[])
 		{.name = 0, .has_arg = 0, .flag = 0, .val = 0} ,
 	};
 	u64 pid, kernel, input, output;
-	char *param_str;
+	char *param_str = NULL;
 	char op;
 	int err;
 	int query = 0;

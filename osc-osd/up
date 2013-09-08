@@ -135,5 +135,6 @@ done
 # Last print what we got
 $TGTADM --lld iscsi --mode target --op show
 
+ps | grep otgt
 
 echo "otgtd started, run \"up down\" to stop"

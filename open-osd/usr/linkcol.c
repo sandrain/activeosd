@@ -214,12 +214,6 @@ static int osdblk_exec(struct osd_request *or, u8 *cred)
 
 static int do_link(struct osd_dev *od, u64 pid, u64 oid, u64 cid)
 {
-#if 0
-	__be64 be_size = cpu_to_be64(size);
-	struct osd_attr attr_logical_length = ATTR_SET(
-		OSD_APAGE_OBJECT_INFORMATION, OSD_ATTR_OI_LOGICAL_LENGTH,
-		sizeof(be_size), &be_size);
-#endif
 	int ret;
 	u8 creds[OSD_CAP_LEN];
 	struct osd_request *or = osd_start_request(od, GFP_KERNEL);

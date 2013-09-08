@@ -683,7 +683,6 @@ static int cdb_execute_kernel(struct command *cmd)
 	if (desc->type != KERNEL_EXECUTION_PARAM)
 		goto out_cdb_err;
 
-	//params = (typeof(params)) desc->desc_specific_hdr;
 	params = &desc->active_params;
 
 	ret = osd_submit_active_task(cmd->osd, pid, oid, params, cmd->sense);
@@ -716,7 +715,7 @@ static int cdb_execute_query(struct command *cmd)
 
 	obj = &desc->obj;
 
-	ret = osd_query_active_task(cmd->osd, obj->id, &cmd->used_outlen,
+	ret = osd_query_active_task(cmd->osd, pid, obj->id, &cmd->used_outlen,
 				cmd->outdata, cmd->sense);
 	return ret;
 
@@ -1612,9 +1611,11 @@ osd_warning("%s:%d:", __FILE__, __LINE__);
 			desc->active_params.args_len = get_ntohl(&pos[16]);
 
 			/** should be freed after command execution */
-			desc->active_params.args
-				= strndup((const char *) &pos[20],
-					desc->active_params.args_len);
+			desc->active_params.args = 
+				desc->active_params.args_len > 0
+				? strndup((const char *) &pos[20],
+					(size_t) desc->active_params.args_len)
+				: NULL;
 			break;
 	        }
 
@@ -2138,10 +2139,18 @@ static void exec_service_action(struct command *cmd)
 	}
 	case OSD_EXECUTE_KERNEL: {
 		ret = cdb_execute_kernel(cmd);
+		if (ret)
+			break;
+
+		ret = std_get_set_attr(cmd, pid, oid, cdb_cont_len);
 		break;
 	}
 	case OSD_EXECUTE_QUERY: {
 		ret = cdb_execute_query(cmd);
+		if (ret)
+			break;
+
+		ret = std_get_set_attr(cmd, pid, oid, cdb_cont_len);
 		break;
 	}
 	case OSD_CAS: {

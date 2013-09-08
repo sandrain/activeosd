@@ -40,12 +40,19 @@ static inline int afs_hash_insert(afs_htable *htab, const char *key, void *val)
 
 static inline void *afs_hash_search(afs_htable *htab, const char *key)
 {
-	ENTRY e, *tmp;
+	int ret;
+	ENTRY e, *tmp = NULL;
 
 	e.key = (char *) key;
 	e.data = NULL;
 
+	ret = hsearch_r(e, FIND, &tmp, htab);
+
+	return tmp ? tmp->data : NULL;
+
+#if 0
 	return hsearch_r(e, FIND, &tmp, htab) ? tmp->data : NULL;
+#endif
 }
 
 #endif	/** __SIMPLEHASH_H__ */
