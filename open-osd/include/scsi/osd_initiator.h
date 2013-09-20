@@ -379,6 +379,7 @@ struct osd_active_task_status {
 	u32 status;
 	u32 ret;
 	u64 submit;
+	u64 start;
 	u64 complete;
 } __attribute__((packed));
 

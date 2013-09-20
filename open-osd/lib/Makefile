@@ -29,7 +29,8 @@ CWARN := -Wall -W -Wwrite-strings \
 
 CWARN_NOT=-Wcast-qual -Wcast-align -Wbad-function-cast
 
-COPTS = -O0 -ggdb
+#COPTS = -O0 -ggdb
+COPTS = -O3
 
 CFLAGS = $(COPTS) -fPIC $(CWARN) $(INCLUDES) $(DEFINES)
 LDFLAGS += --no-undefined -lc

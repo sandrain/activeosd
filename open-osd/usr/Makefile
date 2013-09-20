@@ -36,7 +36,7 @@ CFLAGS = -fPIC $(CWARN) $(INCLUDES) $(DEFINES)
 
 OSD_LIBS=-L../lib -losd
 
-ALL = osd_test mkfs.exofs osdblk linkcol atest
+ALL = osd_test mkfs.exofs osdblk linkcol atest copier odd
 all: $(DEPEND) $(ALL)
 
 clean: $(ALL:=_clean)
@@ -47,7 +47,7 @@ OT_COMMON_OBJ=osd_ktests.o
 OT_OBJ=osd_test.o
 
 # add for osd_ktests user-mode debugging
-CFLAGS += -DCONFIG_SCSI_OSD_DEBUG -ggdb -O0
+CFLAGS += -DCONFIG_SCSI_OSD_DEBUG -O3 #-ggdb -O0
 
 osd_ktests.c:
 	ln -sf $(SRC_PATH)/osd_ktests.c
@@ -102,6 +102,26 @@ atest:  $(atest_OBJ)
 atest_clean:
 
 $(DEPEND): $(atest_OBJ:.o=.c)
+
+# =============== copier ======================================================
+copier_OBJ=copier.o
+
+copier:  $(copier_OBJ)
+	$(CC) -o $@ $^ $(OSD_LIBS)
+
+copier_clean:
+
+$(DEPEND): $(copier_OBJ:.o=.c)
+
+# =============== odd ======================================================
+odd_OBJ=odd.o
+
+odd:  $(odd_OBJ)
+	$(CC) -o $@ $^ $(OSD_LIBS)
+
+odd_clean:
+
+$(DEPEND): $(odd_OBJ:.o=.c)
 
 # =============== common rules =================================================
 # every thing should compile if Makefile changed

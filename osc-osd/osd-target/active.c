@@ -64,7 +64,7 @@ struct active_task {
 	active_task_callback_t callback;
 
 	uint64_t submit;		/* task submitted time */
-	uint64_t begin;			/* task execution time */
+	uint64_t start;			/* task execution time */
 	uint64_t complete;		/* task completion time */
 
 	int synced;			/* db synced? */
@@ -79,6 +79,7 @@ struct active_task_status {
 	uint32_t status;
 	uint32_t ret;
 	uint64_t submit;
+	uint64_t start;
 	uint64_t complete;
 } __attribute__((packed));
 
@@ -164,7 +165,7 @@ static inline void active_task_set_status(struct active_task *task, int status)
 	task->status = status;
 	switch (status) {
 	case ACTIVE_TASK_WAITING: ts = &task->submit; break;
-	case ACTIVE_TASK_RUNNING: ts = &task->begin; break;
+	case ACTIVE_TASK_RUNNING: ts = &task->start; break;
 	case ACTIVE_TASK_COMPLETE: ts = &task->complete; break;
 	default: break;
 	}
@@ -567,6 +568,7 @@ static void *active_thread_func(void *arg)
 	return (void *) 0;
 }
 
+#if 0
 /**
  * active_cleaner_func periodically checks completed tasks (TQ_COMPLETE) and
  * sync the task status onto database.
@@ -620,6 +622,7 @@ static void *active_cleaner_func(void *arg)
 
 	return (void *) 0;
 }
+#endif
 
 int osd_init_active_threads(int count)
 {
@@ -751,6 +754,7 @@ int osd_query_active_task(struct osd_device *osd, uint64_t pid, uint64_t tid,
 	set_htonl(&ts->status, task->status);
 	set_htonl(&ts->ret, task->ret);
 	set_htonll(&ts->submit, task->submit);
+	set_htonll(&ts->start, task->start);
 	set_htonll(&ts->complete, task->complete);
 
 	/**

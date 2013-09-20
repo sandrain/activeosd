@@ -248,6 +248,10 @@ static int do_create(struct osd_dev *od, struct osd_obj_id *obj, u64 size)
 	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
 	u8 creds[OSD_CAP_LEN];
 	int ret;
+	struct osd_attr attr;
+	u64 oid = obj->id;
+	int nelem = 1;
+	void *iter = NULL;
 
 	if (unlikely(!or))
 		return -ENOMEM;
@@ -267,11 +271,29 @@ static int do_create(struct osd_dev *od, struct osd_obj_id *obj, u64 size)
 		return -ENOMEM;
 
 	osd_req_create_object(or, obj);
-	ret = osdblk_exec(or, creds);
-	osd_end_request(or);
 
-	if (ret)
+	if (obj->id == 0) {
+		/** we need to retrieve the collection id allocated */
+		attr.attr_page = OSD_APAGE_CURRENT_COMMAND;
+		attr.attr_id = OSD_APAGE_OBJECT_COLLECTIONS;
+		attr.len = sizeof(__be64);
+		attr.val_ptr = NULL;
+		ret = osd_req_add_get_attr_list(or, &attr, 1);
+	}
+
+	ret = osdblk_exec(or, creds);
+	if (ret) {
+		osd_end_request(or);
 		return ret;
+	}
+
+	if (obj->id == 0) {
+		osd_req_decode_get_attr_list(or, &attr, &nelem, &iter);
+		oid = get_unaligned_be64(attr.val_ptr);
+		obj->id = oid;
+	}
+
+	osd_end_request(or);
 
 	OSDBLK_INFO("Created: pid=0x%llx oid=0x%llx\n",
 		_LLU(obj->partition), _LLU(obj->id));
@@ -327,11 +349,12 @@ static int do_create_collection(struct osd_dev *od, struct osd_obj_id *obj)
 
 	ret = osdblk_exec(or, creds);
 	if (ret)
-		return ret;
+		goto out;
 
 	osd_req_decode_get_attr_list(or, &attr, &nelem, &iter);
 	cid = get_unaligned_be64(attr.val_ptr);
 
+out:
 	osd_end_request(or);
 
 	OSDBLK_INFO("Collection created: pid=0x%llx oid=0x%llx "
@@ -339,7 +362,7 @@ static int do_create_collection(struct osd_dev *od, struct osd_obj_id *obj)
 			_LLU(obj->partition), _LLU(obj->id),
 			_LLU(cid), _LLU(cid));
 
-	return 0;
+	return ret;
 }
 
 enum osd_todo {
