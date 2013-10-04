@@ -47,7 +47,8 @@ OT_COMMON_OBJ=osd_ktests.o
 OT_OBJ=osd_test.o
 
 # add for osd_ktests user-mode debugging
-CFLAGS += -DCONFIG_SCSI_OSD_DEBUG -O3 #-ggdb -O0
+#CFLAGS += -DCONFIG_SCSI_OSD_DEBUG -O3 #-ggdb -O0
+CFLAGS += -DCONFIG_SCSI_OSD_DEBUG -ggdb -O0
 
 osd_ktests.c:
 	ln -sf $(SRC_PATH)/osd_ktests.c
@@ -117,7 +118,7 @@ $(DEPEND): $(copier_OBJ:.o=.c)
 odd_OBJ=odd.o
 
 odd:  $(odd_OBJ)
-	$(CC) -o $@ $^ $(OSD_LIBS)
+	$(CC) -o $@ $^ $(OSD_LIBS) -pthread
 
 odd_clean:
 
