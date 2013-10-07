@@ -60,10 +60,13 @@ uint32_t jenkins_one_at_a_time_hash(uint8_t *key, size_t key_len);
  * Disable debugging with -DNDEBUG in CFLAGS.  This also disables assert().
  */
 
+#if 0
 #define osd_debug(fmt,args...) \
 	do { \
 		osd_info(fmt,##args); \
 	} while (0)
+#endif
+
 #ifndef NDEBUG
 #define osd_debug(fmt,args...) \
 	do { \

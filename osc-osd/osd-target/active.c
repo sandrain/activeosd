@@ -299,7 +299,7 @@ static inline void close_objects(uint32_t n, int *fdlist)
 static int run_task(struct active_task *task)
 {
 	int ret = 0;
-	int *fdp;
+	int *fdp = NULL;
 	void *dh;
 	uint64_t iolen, oolen;
 	uint64_t *iolist, *oolist;
@@ -357,6 +357,8 @@ static int run_task(struct active_task *task)
 		ret = errno;
 		goto out_close_oo;
 	}
+
+	osd_info("task is being executed: %llu", llu(task->id));
 
 	ret = (*active_kernel) (&param);
 	task->ret = ret;
@@ -422,6 +424,7 @@ typedef uint16_t __le16;
 typedef uint32_t __le32;
 #endif
 
+#if 0
 #define EXOFS_IDATA		5
 
 struct exofs_fcb {
@@ -481,6 +484,7 @@ static int update_output_exofs_inodes(struct active_task *task)
 
 	return ret;
 }
+#endif
 
 static int active_task_complete(struct active_task *task)
 {
@@ -495,8 +499,13 @@ static int active_task_complete(struct active_task *task)
 	 */
 	if (task->ret)
 		ret = truncate_output_objects(task);	/** task fail */
+#if 0
+	/**
+	 * we don't use exofs anymore.
+	 */
 	else
 		ret = update_output_exofs_inodes(task);	/** task success */
+#endif
 
 	active_task_set_status(task, ACTIVE_TASK_COMPLETE);
 	tq_append(TQ_COMPLETE, task);
@@ -559,6 +568,7 @@ static void *active_thread_func(void *arg)
 		}
 
 		ret = run_task(task);
+		osd_info("task execution successful: %llu", llu(task->id));
 		if (task->callback)
 			(*task->callback)(task, task->callback_arg);
 
@@ -725,6 +735,9 @@ int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 		    llu(params->args));
 #endif
 
+	osd_info("task submitted: id = %llu, kernel = (%llu, %llu)",
+			llu(task->id), llu(pid), llu(oid));
+
 	tq_append(TQ_WAIT, task);
 
 	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
@@ -762,8 +775,10 @@ int osd_query_active_task(struct osd_device *osd, uint64_t pid, uint64_t tid,
 	 * we currently assume that querying completed tasks implicitly mean
 	 * that the task record can be discarded.
 	 */
-	if (task->complete)
+	if (task->complete) {
 		task->synced = 1;
+		osd_info("task status fetched: id=%llu", llu(task->id));
+	}
 
 	active_task_unlock(task);
 

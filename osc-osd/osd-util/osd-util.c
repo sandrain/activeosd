@@ -72,9 +72,14 @@ osd_info(const char *fmt, ...)
 
 	fprintf(stderr, "%s: [%s] ", progname, buffer);
 	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, ".\n");
+#if 0
 	vfprintf(stdout, fmt, ap);
 	va_end(ap);
 	fprintf(stdout, ".\n");
+#endif
 }
 
 /*

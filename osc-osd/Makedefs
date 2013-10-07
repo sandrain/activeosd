@@ -4,7 +4,7 @@
 #
 # OPT := -g
 #OPT := -O3 -D_GNU_SOURCE -D_BSD_SOURCE
-OPT := -O0 -ggdb3 -D_GNU_SOURCE -D_BSD_SOURCE
+OPT := -O0 -ggdb3 -D_GNU_SOURCE -D_BSD_SOURCE -DNDEBUG
 
 # Backend configuration flags
 # PANASAS_OSD=1
