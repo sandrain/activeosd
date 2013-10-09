@@ -22,8 +22,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <sqlite3.h>
+#include <pthread.h>
 
 #include "osd-util/osd-defs.h"
+#include "list.h"
 
 struct getattr_list_entry {
 	uint32_t page;
@@ -166,6 +168,7 @@ struct id_list {
 struct coll_tab;
 struct obj_tab;
 struct attr_tab;
+struct task_tab;
 
 /* 
  * Encapsulate all db structs in db context. each db context is handled by an
@@ -176,6 +179,7 @@ struct db_context {
 	struct coll_tab *coll;
 	struct obj_tab *obj;
 	struct attr_tab *attr;
+	struct task_tab *task;
 };
 
 /*

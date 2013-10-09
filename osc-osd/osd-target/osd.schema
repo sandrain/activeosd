@@ -71,6 +71,7 @@ CREATE INDEX val_ind ON attr (value);
 -- this index help get_dir_page query, but might slow down set_attr
 -- CREATE INDEX num_ind ON attr (pid,oid,number);
 
+
 -- Keeping track of task executions.
 --
 -- task status:
@@ -79,19 +80,21 @@ CREATE INDEX val_ind ON attr (value);
 -- 2: complete (success)
 -- 3: aborted (error)
 --
-CREATE TABLE tasks (
+CREATE TABLE task (
 	tid	INTEGER NOT NULL,
 	pid	INTEGER NOT NULL REFERENCES obj(pid),
 	oid	INTEGER NOT NULL REFERENCES obj(oid),
 	icid	INTEGER NOT NULL REFERENCES coll(cid),
 	ocid	INTEGER NOT NULL REFERENCES coll(cid),
-	submit	INTEGER NOT NULL,
-	begin	INTEGER NOT NULL,
-	complete INTEGER NOT NULL,
-	ret	INTEGER NOT NULL DEFAULT 0,
-	status	INTEGER NOT NULL DEFAULT 0,
+	submit	INTEGER NOT NULL DEFAULT 0,
+	begin	INTEGER NOT NULL DEFAULT 0,
+	complete INTEGER NOT NULL DEFAULT 0,
+	ret	INTEGER NOT NULL DEFAULT -1,
 	args	TEXT NOT NULL DEFAULT '',
 
 	PRIMARY KEY (tid ASC)
 );
+
+-- TODO: which index structures do we need here?
+--
 
