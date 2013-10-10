@@ -223,7 +223,7 @@ out_reset:
 /** updates timestamp for the given task */
 int task_update_status_begin(struct db_context *dbc, const uint64_t tid)
 {
-	int ret, bound;
+	int ret = 0, bound;
 	sqlite3_stmt *stmt;
 
 	assert(dbc && dbc->db && dbc->task && dbc->task->update_begin);
@@ -250,7 +250,7 @@ out_reset:
 int task_update_status_complete(struct db_context *dbc, const uint64_t tid,
 				const int ret_status)
 {
-	int ret, bound;
+	int ret = 0, bound;
 	sqlite3_stmt *stmt;
 
 	assert(dbc && dbc->db && dbc->task && dbc->task->update_complete);

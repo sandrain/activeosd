@@ -139,7 +139,7 @@ static struct active_task *alloc_active_task(struct osd_device *osd,
 	task->args = params->args;
 
 	ret = task_insert(dbc, task);
-	if (!ret) {
+	if (ret) {
 		tq_append(TQ_FREE, task);
 		task = NULL;
 	}
@@ -365,6 +365,16 @@ static void *active_thread_func(void *arg)
 			continue;
 		}
 
+		ret = task_update_status_begin(task->osd->dbc, task->id);
+		if (ret) {
+			/** damn,.. what shall we do?? */
+			osd_info("updating task status to db failed: "
+				 "tid=%llu, ret=%d\n", task->id, ret);
+			tq_append(TQ_WAIT, task);
+			usleep(DEFAULT_IDLE_SLEEP*5);
+			continue;
+		}
+
 		ret = run_task(task);
 		osd_info("task execution successful: %llu", llu(task->id));
 		if (task->callback)
@@ -471,8 +481,8 @@ int osd_query_active_task(struct osd_device *osd, uint64_t pid, uint64_t tid,
 	assert(osd && outlen && outdata && sense);
 
 	memset(&task, 0, sizeof(task));
-	ret = task_get(osd->dbc, tid, &task);
-	if (!ret)
+	ret = task_get_status(osd->dbc, tid, &task);
+	if (ret)
 		goto out_cdb_err;
 
 	if (task.start == 0)

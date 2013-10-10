@@ -57,7 +57,7 @@ static int db_check_tables(struct db_context *dbc)
 	int ret = 0;
 	char SQL[MAXSQLEN];
 	char *err = NULL;
-	const char *tables[] = {"attr", "obj", "coll", "tasks"};
+	const char *tables[] = {"attr", "obj", "coll", "task"};
 	struct array arr = {ARRAY_SIZE(tables), tables};
 
 	sprintf(SQL, "SELECT name FROM sqlite_master WHERE type='table' "
@@ -186,10 +186,15 @@ int db_initialize(struct db_context *dbc)
 	ret = attr_initialize(dbc);
 	if (ret != OSD_OK)
 		goto finalize_attr;
+	ret = task_initialize(dbc);
+	if (ret != OSD_OK)
+		goto finalize_task;
 
 	ret = OSD_OK;
 	goto out;
 
+finalize_task:
+	task_finalize(dbc);
 finalize_attr:
 	attr_finalize(dbc);
 finalize_obj:

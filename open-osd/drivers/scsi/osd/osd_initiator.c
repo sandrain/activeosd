@@ -1633,9 +1633,12 @@ int osd_req_decode_sense_full(struct osd_request *or,
 	ssdb = or->request->sense;
 	sense_len = or->request->sense_len;
 	if ((sense_len < (int)sizeof(*ssdb) || !ssdb->sense_key)) {
+#if 0
+		/** temporarily disabled for debugging: hyogi */
 		OSD_ERR("Block-layer returned error(0x%x) but "
 			"sense_len(%u) || key(%d) is empty\n",
 			or->request->errors, sense_len, ssdb->sense_key);
+#endif
 		return -EIO;
 	}
 
