@@ -267,9 +267,9 @@ static int run_task(struct active_task *task)
 
 	close_objects(param.n_outfiles, param.fdout);
 	close_objects(param.n_infiles, param.fdin);
+	dlclose(dh);
 	if (fdp)
 		free(fdp);
-	dlclose(dh);
 
 	task->input_len = iolen;	/** store the object lists */
 	task->output_len = oolen;
