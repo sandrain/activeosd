@@ -206,6 +206,7 @@ static int run_task(struct active_task *task)
 	uint64_t iolen, oolen;
 	uint64_t *iolist, *oolist;
 	char pathbuf[MAXNAMELEN];
+	char *dlerr;
 	struct active_params param;
 	struct osd_device *osd = task->osd;
 	active_kernel_t active_kernel;
@@ -255,19 +256,30 @@ static int run_task(struct active_task *task)
 		goto out_close_io;
 
 	*(void **) (&active_kernel) = dlsym(dh, "execute_kernel");
-	if (NULL != dlerror()) {
+	if (NULL != (dlerr = dlerror())) {
 		ret = errno;
+		osd_info("failed to find execute kernel: %s (%d)\n",
+				dlerr, errno);
 		goto out_close_oo;
 	}
 
 	osd_info("task is being executed: %llu", llu(task->id));
 
 	ret = (*active_kernel) (&param);
+	if (NULL != (dlerr = dlerror())) {
+		ret = errno;
+		osd_info("failed to execute execute_kernel: %s (%d)\n",
+				dlerr, errno);
+		goto out_close_oo;
+	}
 	task->ret = ret;
 
 	close_objects(param.n_outfiles, param.fdout);
 	close_objects(param.n_infiles, param.fdin);
+
+	active_kernel = NULL;
 	dlclose(dh);
+
 	if (fdp)
 		free(fdp);
 
@@ -330,6 +342,11 @@ static int active_task_complete(struct active_task *task)
 		osd_info("updating task status to db failed: "
 			 "tid=%llu, ret=%d\n", task->id, ret);
 	}
+
+	if (task->input_objs)
+		free(task->input_objs);
+	if (task->output_objs)
+		free(task->output_objs);
 
 	tq_append(TQ_FREE, task);
 
