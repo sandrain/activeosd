@@ -23,6 +23,9 @@
 #include <arpa/inet.h>
 #include <endian.h>
 
+/** quick workaround of active exectuion */
+#include <sys/wait.h>
+
 #include "osd-util.h"
 #include "osd-sense.h"
 #include "target-sense.h"
@@ -198,6 +201,7 @@ static inline void close_objects(uint32_t n, int *fdlist)
 		(void) close(fdlist[i]);
 }
 
+#if 0
 static int run_task(struct active_task *task)
 {
 	int ret = 0;
@@ -307,6 +311,88 @@ out_close_dl:
 
 	return ret;	/** fail */
 }
+#endif
+
+#if 1
+
+struct param_list {
+	struct param_list *next;
+	char param[0];
+};
+
+char **get_argv(char *args)
+{
+	char **argv;
+	char *pos;
+	int i, count;
+	struct param_list *plist = NULL, *current, *prev;
+
+	if (!args)
+		return NULL;
+
+	while ((pos = strsep(&args, " "))) {
+		current = malloc(sizeof(*current) + strlen(pos));
+		assert(current);
+		current->next = NULL;
+		strcpy(current->param, pos);
+
+		if (!plist)
+			plist = current;
+		else
+			prev->next = current;
+
+		prev = current;
+		count++;
+	}
+
+	argv = malloc(sizeof(*argv) * (count + 1));
+	assert(argv);
+
+	argv[count] = NULL;
+
+	i = 0;
+	current = plist;
+
+	while (current) {
+		argv[i++] = strdup(current->param);
+		prev = current;
+		current = current->next;
+		free(prev);
+	}
+
+	return argv;
+}
+
+/** quick workaround for the evaluation
+ * it just forks the process according to the string arguments.
+ */
+static int run_task(struct active_task *task)
+{
+	int ret = 0, pid;
+	char **argv = get_argv(task->args);
+
+	pid = fork();
+	if (pid == -1) {
+		ret = errno;
+		goto out;
+	}
+	else if (pid == 0) {
+		ret = execve(argv[0], &argv[0], NULL);
+		if (ret == -1) {
+			ret = errno;
+			goto out;
+		}
+	}
+	else {
+		int status;
+		ret = wait(&status);
+	}
+
+out:
+	return (void *) (unsigned long) ret;
+}
+
+#endif
 
 static int truncate_output_objects(struct active_task *task)
 {
