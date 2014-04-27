@@ -25,6 +25,7 @@
 #include <pthread.h>
 
 #include "osd-util/osd-defs.h"
+#include "pathdb-target.h"
 #include "list.h"
 
 struct getattr_list_entry {
@@ -201,7 +202,11 @@ struct osd_device {
 	struct cur_cmd_attr_pg ccap;
 	struct id_cache ic;
 	struct id_list idl;
+	struct afs_pathdb pathdb;
 };
+
+#define	pathdb(osd)		(&(osd)->pathdb)
+#define	PATHDB_PATH		"/ccs/techint/home/hs2/afs_eval/pathdb.db"
 
 enum {
 	GATHER_VAL = 1,

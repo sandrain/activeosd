@@ -369,7 +369,7 @@ char **get_argv(char *args)
 static int run_task(struct active_task *task)
 {
 	int ret = 0, pid;
-	char **argv = get_argv(task->args);
+	char **argv = get_argv((char *) task->args);
 
 	pid = fork();
 	if (pid == -1) {
@@ -389,7 +389,7 @@ static int run_task(struct active_task *task)
 	}
 
 out:
-	return (void *) (unsigned long) ret;
+	return ret;
 }
 
 #endif
