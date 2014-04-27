@@ -265,6 +265,10 @@ out:
 	return ret;
 }
 
+/**
+ * come back here, only if we really need to implemente the followings.
+ */
+
 int afs_pathdb_update_entry(struct afs_pathdb *self, char *root,
 			uint64_t pid, uint64_t oid)
 {
@@ -273,4 +277,12 @@ int afs_pathdb_update_entry(struct afs_pathdb *self, char *root,
 	return ret;
 }
 
+
+int afs_pathdb_remove_entry(struct afs_pathdb *self, char *root,
+			uint64_t pid, uint64_t oid)
+{
+	int ret = 0;
+
+	return ret;
+}
 
