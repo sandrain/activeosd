@@ -365,10 +365,28 @@ char **get_argv(char *args)
 
 /** quick workaround for the evaluation
  * it just forks the process according to the string arguments.
+ *
+ * update: to launch the bash script, now using popen instead of the fork.
  */
 static int run_task(struct active_task *task)
 {
 	int ret = 0, pid;
+	FILE *pipe;
+	char command[2048];
+	char linebuf[1024];
+
+	/** the executable is a symlink, use '.' */
+	sprintf(command, ". %s", task->args);
+
+	pipe = popen(command, "r");
+	while (fgets(linebuf, 1024, pipe))
+		;	/** just consume the outputs */
+	ret = pclose(pipe);
+	task->ret = ret;
+
+	return 0;
+
+#if 0
 	char **argv = get_argv((char *) task->args);
 
 	pid = fork();
@@ -390,6 +408,7 @@ static int run_task(struct active_task *task)
 
 out:
 	return ret;
+#endif
 }
 
 #endif
