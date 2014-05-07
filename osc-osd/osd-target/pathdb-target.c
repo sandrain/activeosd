@@ -11,13 +11,15 @@
 enum {
 	PATHDB_STMT_SEARCH_PATH	= 0,
 	PATHDB_STMT_SEARCH_OID,
+	PATHDB_STMT_SEARCH_RUNTIME,
 
 	PATHDB_STMTS
 };
 
 static const char *sqls[] = {
 	"SELECT nspath FROM afs_nspath WHERE pid=? AND oid=?",
-	"SELECT pid,oid FROM afs_nspath WHERE nspath=?"
+	"SELECT pid,oid FROM afs_nspath WHERE nspath=?",
+	"SELECT runtime FROM afs_nspath WHERE pid=? AND oid=?"
 };
 
 static inline sqlite3_stmt *stmt_get(struct afs_pathdb *self, int index)
@@ -285,4 +287,45 @@ int afs_pathdb_remove_entry(struct afs_pathdb *self, char *root,
 
 	return ret;
 }
+
+#if 1
+/** the errors are not critical here. just set the runtime zero */
+int afs_pathdb_get_runtime(struct afs_pathdb *self, uint64_t *runtime /* out */,
+				uint64_t pid, uint64_t oid)
+{
+	int ret;
+	sqlite3_stmt *stmt;
+
+	if (!self || !pid || !oid)
+		return -EINVAL;
+
+	stmt = stmt_get(self, PATHDB_STMT_SEARCH_RUNTIME);
+	ret = sqlite3_bind_int64(stmt, 1, pid);
+	ret |= sqlite3_bind_int64(stmt, 2, oid);
+	if (ret) {
+		ret = -EIO;
+		goto out;
+	}
+
+	do {
+		ret = sqlite3_step(stmt);
+	} while (ret == SQLITE_BUSY);
+
+	if (ret == SQLITE_DONE) {
+		ret = -ENOENT;
+		goto out;
+	}
+
+	if (ret != SQLITE_ROW) {
+		ret = -EIO;
+		goto out;
+	}
+
+	*runtime = sqlite3_column_int64(stmt, 0);
+	ret = 0;
+out:
+	sqlite3_reset(stmt);
+	return ret;
+}
+#endif
 

@@ -43,6 +43,8 @@ static pthread_t active_workers[DEFAULT_ACTIVE_WORKERS];
 
 static const int initial_descriptors = 20;
 
+static uint64_t wait_time;
+
 /**
  * simple tasks queues and accessors.
  */
@@ -150,6 +152,32 @@ static struct active_task *alloc_active_task(struct osd_device *osd,
 out:
 	return task;
 }
+
+#if 0
+
+static const char *devq_path = "/ccs/techint/home/hs2/afs_eval/devq/";
+static FILE *fp;
+static char devq_pathbuf[128];
+
+static void update_wait_time(void)
+{
+	if (devq_pathbuf[0] == '\0') {
+		char *pos = devq_pathbuf;
+		pos += sprintf(pos, "%s", devq_path);
+		gethostname(pos, 128 - strlen(devq_path));
+	}
+
+	if (!fp) {
+		fp = fopen(devq_pathbuf, "w");
+		if (!fp)
+			return;
+	}
+
+	rewind(fp);
+	fwrite((const void *) &wait_time, sizeof(wait_time), 1, fp);
+}
+
+#endif
 
 static inline int open_objects(struct osd_device *osd, uint64_t pid,
 				uint64_t len, uint64_t *olist, int *fdlist,
@@ -502,7 +530,12 @@ static void *active_thread_func(void *arg)
 		if (task->callback)
 			(*task->callback)(task, task->callback_arg);
 
-		active_task_complete(task);
+#if 0
+		wait_time -= task->runtime;
+		update_wait_time();
+#endif
+
+	active_task_complete(task);
 	}
 
 	return (void *) 0;
@@ -559,12 +592,12 @@ void osd_exit_active_threads(void)
 #endif
 }
 
-
 int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 		struct kernel_execution_params *params, uint8_t *sense)
 {
 	int ret;
 	struct active_task *task = NULL;
+	uint64_t runtime;
 
 	assert(osd && sense && params);
 	if (!(pid >= USEROBJECT_PID_LB && oid >= USEROBJECT_OID_LB))
@@ -579,6 +612,14 @@ int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 
 	active_task_set_status(task, ACTIVE_TASK_WAITING);
 	tq_append(TQ_WAIT, task);
+
+#if 0
+	ret = afs_pathdb_get_runtime(pathdb(osd), &runtime, pid, oid);
+
+	task->runtime = ret ? 5 : runtime;
+	wait_time += task->runtime;
+	update_wait_time();
+#endif
 
 	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
 			OSD_ASC_SUBMITTED_TASK_ID, pid, oid, task->id);

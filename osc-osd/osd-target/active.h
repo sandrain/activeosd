@@ -58,6 +58,10 @@ struct active_task {
 	active_task_callback_t callback;
 
 	pthread_mutex_t lock;
+
+#if 1
+	uint64_t runtime;
+#endif
 };
 
 /**

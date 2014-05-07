@@ -50,5 +50,12 @@ int afs_pathdb_update_entry(struct afs_pathdb *self, char *root,
 int afs_pathdb_remove_entry(struct afs_pathdb *self, char *root,
 			uint64_t pid, uint64_t oid);
 
+#if 1
+
+int afs_pathdb_get_runtime(struct afs_pathdb *self, uint64_t *runtime /* out */,
+				uint64_t pid, uint64_t oid);
+
+#endif
+
 #endif	/** __PATHDB_TARGET_H__ */
 
