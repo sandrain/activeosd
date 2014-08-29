@@ -251,9 +251,15 @@ int afs_pathdb_create_entry(struct afs_pathdb *self, char *root,
 	char nspath[PATHDB_PATHMAX];
 	char *path = NULL;
 
+	/**
+	 * hs: as we are moving to the exofs backend in the initiator, we have
+	 * to allow for creation of objects without having actual paths (e.g.
+	 * superblock)
+	 */
+
 	ret = afs_pathdb_search_path(self, pid, oid, &path);
 	if (ret)
-		goto out;
+		return 0;	/** silently allow to create the objects */
 
 	/** the path from the db always comes with the leading '/' */
 	sprintf(nspath, "%s/%s%s", root, PATHDB_ROOTNAME, path);

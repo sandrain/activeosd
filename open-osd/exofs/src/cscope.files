@@ -1,0 +1,9 @@
+./common.h
+./dir.c
+./exofs.h
+./file.c
+./inode.c
+./namei.c
+./osd.c
+./super.c
+./symlink.c

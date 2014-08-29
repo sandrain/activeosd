@@ -20,13 +20,18 @@ OSD_INC ?= `pwd`/../../../include
 
 # allow users to override these
 # e.g. to compile for a kernel that you aren't currently running
-KSRC ?= /lib/modules/$(shell uname -r)/build
+#KSRC ?= /lib/modules/$(shell uname -r)/build
+KSRC = /lib/modules/$(shell uname -r)/build
 KBUILD_OUTPUT ?=
 ARCH ?=
 V ?= 0
 
 # this is the basic Kbuild out-of-tree invocation, with the M= option
-KBUILD_BASE = +$(MAKE) -C $(KSRC) M=`pwd` KBUILD_OUTPUT=$(KBUILD_OUTPUT) ARCH=$(ARCH) V=$(V)
+#KBUILD_BASE = +$(MAKE) -C $(KSRC) M=`pwd` KBUILD_OUTPUT=$(KBUILD_OUTPUT) ARCH=$(ARCH) V=$(V)
+KBUILD_BASE = +$(MAKE) -C $(KSRC) M=`pwd`
+
+# installation
+DEST = /lib/modules/$(shell uname -r)/kernel/drivers/scsi/osd
 
 all: libosd
 
@@ -35,3 +40,8 @@ libosd: ;
 
 clean:
 	$(KBUILD_BASE) clean
+
+install:
+	@mkdir -p $(DEST)
+	cp *.ko $(DEST) && depmod -a
+
