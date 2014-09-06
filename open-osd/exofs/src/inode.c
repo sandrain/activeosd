@@ -1104,8 +1104,8 @@ struct inode *exofs_new_inode(struct inode *dir, int mode)
 
 	osd_req_create_object(or, &obj);
 
-	/* increment the refcount so that the inode will still be around when we
-	 * reach the callback
+	/* increment the refcount so that the inode will still be around when
+	 * we reach the callback
 	 */
 	atomic_inc(&inode->i_count);
 

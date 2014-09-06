@@ -222,8 +222,13 @@ static ssize_t exofs_attr_show(struct kobject *kobj, struct attribute *attr,
 {
 	struct exofs_sb_info *sbi = container_of(kobj, struct exofs_sb_info,
 						s_kobj);
-	//struct exofs_attr *a = container_of(attr, struct exorfs_attr, attr);
-	return snprintf(buf, PAGE_SIZE, "%llu\n", sbi->s_nextid);
+	uint64_t id;
+
+	spin_lock(&sbi->s_nextid_lock);
+	id = sbi->s_nextid++;
+	spin_unlock(&sbi->s_nextid_lock);
+
+	return snprintf(buf, PAGE_SIZE, "%llu\n", id);
 }
 
 static ssize_t exofs_attr_store(struct kobject *kobj, struct attribute *attr,
@@ -234,9 +239,11 @@ static ssize_t exofs_attr_store(struct kobject *kobj, struct attribute *attr,
 	struct exofs_attr *a = container_of(attr, struct exofs_attr, attr);
 	sscanf(buf, "%d", &a->dummy);
 
+#if 0
 	spin_lock(&sbi->s_nextid_lock);
 	sbi->s_nextid++;
 	spin_unlock(&sbi->s_nextid_lock);
+#endif
 
 	return sizeof(int);
 }
