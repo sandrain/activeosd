@@ -41,7 +41,6 @@
 #include "osd-util/osd-sense.h"
 #include "list-entry.h"
 #include "active.h"
-#include "pathdb-target.h"
 
 #define min(x,y) ({ \
 	typeof(x) _x = (x);	\
@@ -1096,14 +1095,6 @@ int osd_open(const char *root, struct osd_device *osd)
 	/** lauch threads for active job execution */
 	osd_init_active_threads(0);
 
-#if 0
-	/** initialize the pathdb context */
-	ret = afs_pathdb_init(pathdb(osd), PATHDB_PATH);
-out:
-	if (ret != 0)
-		osd_error("afs_pathdb_init(%s) = %d", PATHDB_PATH, ret);
-#endif
-
 out:
 	if (ret != 0) {
 		osd_error("!db_exec_pragma => %d", ret);
@@ -1138,11 +1129,6 @@ int osd_close(struct osd_device *osd)
 		osd_error("%s: osd_db_close", __func__);
 	free(osd->root);
 	osd->root = NULL;
-
-#if 0
-	/** close the pathdb */
-	afs_pathdb_exit(pathdb(osd));
-#endif
 
 	/** destroy active threads */
 	osd_exit_active_threads();
