@@ -441,6 +441,67 @@ out:
 
 #endif
 
+/** fix the exofs metadata */
+#define EXOFS_IDATA		5
+
+struct exofs_fcb {
+	__le64  i_size;			/* Size of the file */
+	__le16  i_mode;         	/* File mode */
+	__le16  i_links_count;  	/* Links count */
+	__le32  i_uid;          	/* Owner Uid */
+	__le32  i_gid;          	/* Group Id */
+	__le32  i_atime;        	/* Access time */
+	__le32  i_ctime;        	/* Creation time */
+	__le32  i_mtime;        	/* Modification time */
+	__le32  i_flags;        	/* File flags (unused for now)*/
+	__le32  i_generation;   	/* File version (for NFS) */
+	__le32  i_data[EXOFS_IDATA];	/* Short symlink names and device #s */
+};
+
+#define OSD_APAGE_APP_DEFINED_FIRST	0x00010000
+#define EXOFS_APAGE_FS_DATA		(OSD_APAGE_APP_DEFINED_FIRST + 3)
+#define EXOFS_ATTR_INODE_DATA		1
+
+static int update_output_exofs_inodes(struct active_task *task)
+{
+	int ret;
+	uint64_t i;
+	uint32_t used_outlen = 0;
+	struct osd_device *osd = task->osd;
+	struct exofs_fcb fcb;
+	char pathbuf[MAXNAMELEN];
+	struct stat stbuf;
+
+	for (i = 0; i < task->output_len; i++) {
+		dfile_name(pathbuf, osd->root, task->pid,
+				task->output_objs[i]);
+		ret = stat(pathbuf, &stbuf);
+		if (ret < 0)
+			continue;	/** TODO: handle error! */
+
+		ret = attr_get_val(osd->dbc, task->pid, task->output_objs[i],
+				EXOFS_APAGE_FS_DATA, EXOFS_ATTR_INODE_DATA,
+				sizeof(fcb), (void *) &fcb, &used_outlen);
+
+		if (ret != OSD_OK || sizeof(fcb) != used_outlen)
+			continue;	/** TODO: handle error! */
+
+		fcb.i_size = htole64(stbuf.st_size);
+		fcb.i_atime = htole32(stbuf.st_atime);
+		fcb.i_mtime = htole32(stbuf.st_mtime);
+
+		ret = attr_set_attr(osd->dbc, task->pid, task->output_objs[i],
+				EXOFS_APAGE_FS_DATA, EXOFS_ATTR_INODE_DATA,
+				(void *) &fcb, sizeof(fcb));
+
+		if (ret != OSD_OK) {
+			/** TODO: handle error! */
+		}
+	}
+
+	return ret;
+}
+
 static int truncate_output_objects(struct active_task *task)
 {
 	int ret;
@@ -467,8 +528,17 @@ static int active_task_complete(struct active_task *task)
 {
 	int ret;
 
+	/**
+	 * current osd emulator doesn't put the object length into the attr db
+	 * but it relies on underlying filesystem (e.g. ext3) to keep track of
+	 * it. but for exofs, we need to fix its inode directly.
+	 * XXX; the better option is to modify the exofs to reflect the object
+	 * size correctly.
+	 */
 	if (task->ret)
 		ret = truncate_output_objects(task);	/** task fail */
+	else
+		ret = update_output_exofs_inodes(task);
 
 	ret = task_update_status_complete(task->osd->dbc, task->id, task->ret);
 	if (ret) {
@@ -612,14 +682,6 @@ int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 
 	active_task_set_status(task, ACTIVE_TASK_WAITING);
 	tq_append(TQ_WAIT, task);
-
-#if 0
-	ret = afs_pathdb_get_runtime(pathdb(osd), &runtime, pid, oid);
-
-	task->runtime = ret ? 5 : runtime;
-	wait_time += task->runtime;
-	update_wait_time();
-#endif
 
 	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
 			OSD_ASC_SUBMITTED_TASK_ID, pid, oid, task->id);

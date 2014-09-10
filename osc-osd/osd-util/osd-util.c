@@ -88,8 +88,6 @@ osd_info(const char *fmt, ...)
 void __attribute__((format(printf,1,2)))
 osd_warning(const char *fmt, ...)
 {
-#if 0
-	/** temporarily disabled: hyogi */
 	va_list ap;
 
 	fprintf(stdout, "%s: Warning: ", progname);
@@ -97,7 +95,6 @@ osd_warning(const char *fmt, ...)
 	vfprintf(stdout, fmt, ap);
 	va_end(ap);
 	fprintf(stdout, ".\n");
-#endif
 }
 
 /*

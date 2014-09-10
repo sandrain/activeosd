@@ -93,6 +93,7 @@ static const char *md = "md";
 static const char *dbname = "osd.db";
 static const char *dfiles = "dfiles";
 static const char *stranded = "stranded";
+static const char *ns = "ns";
 
 static inline uint8_t get_obj_type(struct osd_device *osd,
 				   uint64_t pid, uint64_t oid)
@@ -1057,6 +1058,14 @@ int osd_open(const char *root, struct osd_device *osd)
 		goto out;
 	}
 
+	/* create 'ns' sub-directory, for pathdb */
+	sprintf(path, "%s/%s/", root, ns);
+	ret = create_dir(path);
+	if (ret != 0) {
+		osd_error("!create_dir_ns(%s)", path);
+		goto out;
+	}
+
 	osd->root = strdup(root);
 	if (!osd->root) {
 		osd_error("!strdup_root(%s)", root);
@@ -1079,6 +1088,10 @@ int osd_open(const char *root, struct osd_device *osd)
 		}
 	}
 	ret = db_exec_pragma(osd->dbc);
+	if (ret != 0) {
+		osd_error("!db_exec_pragma => %d", ret);
+		goto out;
+	}
 
 	/** lauch threads for active job execution */
 	osd_init_active_threads(0);
@@ -1087,7 +1100,7 @@ int osd_open(const char *root, struct osd_device *osd)
 	ret = afs_pathdb_init(pathdb(osd), PATHDB_PATH);
 out:
 	if (ret != 0)
-		osd_error("!db_exec_pragma => %d", ret);
+		osd_error("afs_pathdb_init(%s) = %d", PATHDB_PATH, ret);
 
 	return ret;
 }
@@ -1421,20 +1434,17 @@ static int osd_create_datafile(struct osd_device *osd, uint64_t pid,
 			return ret;
 		close(ret);
 
-		ret = afs_pathdb_create_entry(pathdb(osd), osd->root,
-						pid, oid);
+		ret = afs_pathdb_create_entry(pathdb(osd), osd->root, oid);
 		if (ret)
 			return ret;
-	} else {
+	} else
 		return ret;
-	}
-
-	return 0;
 }
 
 static inline void osd_remove_tmp_objects(struct osd_device *osd, uint64_t pid,
 					  uint64_t start_oid, uint64_t end_oid,
-					  uint8_t *sense, uint32_t cdb_cont_len)
+					  uint8_t *sense,
+					  uint32_t cdb_cont_len)
 {
 	uint64_t j = 0;
 	for (j = start_oid; j < end_oid; j++)

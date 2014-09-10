@@ -117,8 +117,8 @@ echo "================ `date` =========================" >> $LOG_FILE
 # -d - debug level
 #DEBUG="-d 9"
 DEBUG=""
-$OTGTD $DEBUG -f &>> $LOG_FILE  &
 
+$OTGTD $DEBUG -f &>> $LOG_FILE  &
 sleep 2
 
 # 2nd Load some targets
