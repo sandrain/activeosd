@@ -1096,11 +1096,19 @@ int osd_open(const char *root, struct osd_device *osd)
 	/** lauch threads for active job execution */
 	osd_init_active_threads(0);
 
+#if 0
 	/** initialize the pathdb context */
 	ret = afs_pathdb_init(pathdb(osd), PATHDB_PATH);
 out:
 	if (ret != 0)
 		osd_error("afs_pathdb_init(%s) = %d", PATHDB_PATH, ret);
+#endif
+
+out:
+	if (ret != 0) {
+		osd_error("!db_exec_pragma => %d", ret);
+		goto out;
+	}
 
 	return ret;
 }
@@ -1131,8 +1139,10 @@ int osd_close(struct osd_device *osd)
 	free(osd->root);
 	osd->root = NULL;
 
+#if 0
 	/** close the pathdb */
 	afs_pathdb_exit(pathdb(osd));
+#endif
 
 	/** destroy active threads */
 	osd_exit_active_threads();
@@ -1433,10 +1443,6 @@ static int osd_create_datafile(struct osd_device *osd, uint64_t pid,
 		if (ret <= 0)
 			return ret;
 		close(ret);
-
-		ret = afs_pathdb_create_entry(pathdb(osd), osd->root, oid);
-		if (ret)
-			return ret;
 	} else
 		return ret;
 }

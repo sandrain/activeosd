@@ -17,6 +17,7 @@
 #include <sched.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <linux/types.h>
@@ -341,8 +342,6 @@ out_close_dl:
 }
 #endif
 
-#if 1
-
 struct param_list {
 	struct param_list *next;
 	char param[0];
@@ -391,6 +390,151 @@ char **get_argv(char *args)
 	return argv;
 }
 
+#define PATHDB_ROOTNAME		"ns"
+
+/** TODO: place these into a right header file. */
+#define	ANFS_APAGE_FS_DATA	0x10005
+#define	ANFS_ATTR_NSPATH	1
+
+static const uint64_t default_pid = 0x22222;
+
+static inline void get_dfile_name(char *path, const char *root, uint64_t oid)
+{
+	if (!oid)
+		sprintf(path, "%s/%s/%02x", root, "dfiles",
+			(uint8_t)(oid & 0xFFUL));
+	else
+		sprintf(path, "%s/%s/%02x/%llx.%llx", root, "dfiles",
+			(uint8_t)(oid & 0xFFUL), llu(default_pid), llu(oid));
+}
+
+/** check if the given path exists and is a valid directory.
+ * NOTE: returns 0 if invalid, 1 if valid.
+ */
+static inline int valid_directory(const char *path)
+{
+	struct stat stbuf;
+
+	if (stat(path, &stbuf) < 0)
+		return 0;
+
+	return S_ISDIR(stbuf.st_mode) ? 1 : 0;
+}
+
+/** create all intermediate directories along with the path */
+static int create_dirs(const char *osdroot, const char *fullpath)
+{
+	int ret = 0;
+	mode_t mode = 0;
+	char *current, *pos, *path = strdup(fullpath);
+
+	if (!path)
+		return -ENOMEM;
+
+	pos = &path[strlen(osdroot)];
+	while (*pos++ == '/')
+		;
+
+	while ((current = strchr(pos, '/')) != NULL) {
+		*current = '\0';
+
+		if (!valid_directory(path)) {
+			/** we need to create this directory */
+			mode = umask(0);
+			ret = mkdir(path, 0755);
+			umask(mode);
+			if (ret)
+				goto out;
+		}
+
+		*current = '/';
+		pos++;
+	}
+
+out:
+	free(path);
+	return ret;
+}
+
+static int create_link(const char *root, const char *path, const uint64_t oid)
+{
+	int ret;
+	char obj_path[2048];
+
+	get_dfile_name(obj_path, root, oid);
+	ret = symlink(obj_path, path);
+	if (ret < 0 && errno != EEXIST)
+		return -errno;
+	return 0;
+}
+
+static char nspathbuf[MAXNAMELEN];
+
+static int create_nspath(struct osd_device *osd, uint64_t pid, uint64_t oid)
+{
+	int ret, len;
+	char *path;
+	uint64_t used_outlen;
+
+	len = sprintf(nspathbuf, "%s/ns", osd->root);
+	path = &nspathbuf[len];
+
+	ret = attr_get_val(osd->dbc, pid, oid, ANFS_APAGE_FS_DATA,
+			ANFS_ATTR_NSPATH, MAXNAMELEN-len, path, &used_outlen);
+	if (ret)
+		return ret;
+	path[used_outlen] = '\0';
+
+	ret = create_dirs(osd->root, nspathbuf);
+	if (ret)
+		return ret;
+
+	ret = create_link(osd->root, nspathbuf, oid);
+	return ret;
+}
+
+static int prepare_files(struct active_task *task)
+{
+	int ret = 0, len;
+	uint64_t i, iolen, oolen;
+	uint64_t *iolist, *oolist;
+	struct osd_device *osd = task->osd;
+
+	ret = coll_get_full_obj_list(osd->dbc, task->pid, task->input_cid,
+				&iolist, &iolen);
+	if (ret)
+		goto out;
+	ret = coll_get_full_obj_list(osd->dbc, task->pid, task->output_cid,
+				&oolist, &oolen);
+	if (ret)
+		goto out_free_ic;
+
+	ret = create_nspath(osd, task->pid, task->oid);
+	if (ret)
+		goto out_free_oc;
+
+	/** input objects */
+	for (i = 0; i < iolen; i++) {
+		ret = create_nspath(osd, task->pid, iolist[i]);
+		if (ret)
+			goto out_free_oc;
+	}
+
+	/** output objects */
+	for (i = 0; i < oolen; i++) {
+		ret = create_nspath(osd, task->pid, oolist[i]);
+		if (ret)
+			goto out_free_oc;
+	}
+
+out_free_oc:
+	free(oolist);
+out_free_ic:
+	free(iolist);
+out:
+	return ret;
+}
+
 /** quick workaround for the evaluation
  * it just forks the process according to the string arguments.
  *
@@ -403,6 +547,12 @@ static int run_task(struct active_task *task)
 	char command[2048];
 	char linebuf[1024];
 
+	active_task_set_status(task, ACTIVE_TASK_RUNNING);
+
+	ret = prepare_files(task);
+	if (ret)
+		return ret;
+
 	/** the executable is a symlink, use '.' */
 	sprintf(command, ". %s", task->args);
 
@@ -413,33 +563,7 @@ static int run_task(struct active_task *task)
 	task->ret = ret;
 
 	return 0;
-
-#if 0
-	char **argv = get_argv((char *) task->args);
-
-	pid = fork();
-	if (pid == -1) {
-		ret = errno;
-		goto out;
-	}
-	else if (pid == 0) {
-		ret = execve(argv[0], &argv[0], NULL);
-		if (ret == -1) {
-			ret = errno;
-			goto out;
-		}
-	}
-	else {
-		int status;
-		ret = wait(&status);
-	}
-
-out:
-	return ret;
-#endif
 }
-
-#endif
 
 /** fix the exofs metadata */
 #define EXOFS_IDATA		5
@@ -546,10 +670,16 @@ static int active_task_complete(struct active_task *task)
 			 "tid=%llu, ret=%d\n", task->id, ret);
 	}
 
+	ret = update_output_exofs_inodes(task);
+	if (ret) {
+		/** shit */
+	}
+
 	if (task->input_objs)
 		free(task->input_objs);
 	if (task->output_objs)
 		free(task->output_objs);
+
 
 	tq_append(TQ_FREE, task);
 
@@ -596,7 +726,7 @@ static void *active_thread_func(void *arg)
 		}
 
 		ret = run_task(task);
-		osd_info("task execution successful: %llu", llu(task->id));
+		osd_info("task execution: %llu", llu(task->id));
 		if (task->callback)
 			(*task->callback)(task, task->callback_arg);
 
