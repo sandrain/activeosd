@@ -117,14 +117,14 @@ static inline void dfile_name(char *path, const char *root,
 			(uint8_t)(oid & 0xFFUL), llu(pid), llu(oid));
 }
 
-static inline uint64_t active_now(void)
+static inline uint64_t active_now_usec(void)
 {
 	struct timeval tv;
-
 	gettimeofday(&tv, NULL);
-
-	return (uint64_t) tv.tv_sec;
+	return (uint64_t) tv.tv_sec*1000000 + tv.tv_usec;
 }
+
+#define	active_now	active_now_usec
 
 #endif	/** __ACTIVE_H */
 
