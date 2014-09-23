@@ -34,6 +34,8 @@
 #include "active.h"
 #include "task.h"
 
+#define	QTIME_TRACE		1
+
 #define DEFAULT_IDLE_SLEEP	5000	/** in usec */
 #define DEFAULT_ACTIVE_WORKERS	1
 
@@ -42,9 +44,32 @@ struct active_task;
 static int num_active_workers = DEFAULT_ACTIVE_WORKERS;
 static pthread_t active_workers[DEFAULT_ACTIVE_WORKERS];
 
-static const int initial_descriptors = 20;
+static const int initial_descriptors = 100;
 
 static uint64_t wait_time;
+
+#ifdef QTIME_TRACE
+#include <sys/time.h>
+
+static FILE *qlog;
+
+static pthread_mutex_t qlog_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static inline void qtrace(struct active_task *task, char *str)
+{
+	struct timeval t;
+
+	if (!qlog)
+		return;
+
+	gettimeofday(&t, NULL);
+
+	pthread_mutex_lock(&qlog_lock);
+	fprintf(qlog, "%llu.%llu\t: %llu %s\n", t.tv_sec, t.tv_usec, task->id, str);
+	pthread_mutex_unlock(&qlog_lock);
+}
+
+#endif
 
 /**
  * simple tasks queues and accessors.
@@ -417,12 +442,22 @@ static int run_task(struct active_task *task)
 
 	/** the executable is a symlink, use '.' */
 	sprintf(command, ". %s", task->args);
+	//sprintf(command, ". %s", task->args);
 
+
+	ret = system(command);
+#if 0
 	pipe = popen(command, "r");
 	while (fgets(linebuf, 1024, pipe))
 		;	/** just consume the outputs */
 	ret = pclose(pipe);
+#endif
 	task->ret = ret;
+
+#ifdef	QTIME_TRACE
+	qtrace(task, "== task execution");
+	qtrace(task, strerror(ret));
+#endif
 
 	return 0;
 }
@@ -526,6 +561,10 @@ static int active_task_complete(struct active_task *task)
 	else
 		ret = update_output_exofs_inodes(task);
 
+#ifdef QTIME_TRACE
+	qtrace(task, "complete.");
+#endif
+
 	ret = task_update_status_complete(task->osd->dbc, task->id, task->ret);
 	if (ret) {
 		osd_info("updating task status to db failed: "
@@ -576,6 +615,10 @@ static void *active_thread_func(void *arg)
 			usleep(DEFAULT_IDLE_SLEEP);
 			continue;
 		}
+
+#ifdef QTIME_TRACE
+		qtrace(task, "start");
+#endif
 
 		ret = task_update_status_begin(task->osd->dbc, task->id);
 		if (ret) {
@@ -629,6 +672,12 @@ int osd_init_active_threads(int count)
 			goto out;
 	}
 
+#ifdef QTIME_TRACE
+	qlog = fopen("/tmp/afe_qlog", "w");
+	if (qlog)
+		setvbuf(qlog, NULL, _IONBF, 0);
+#endif
+
 	return ret;
 
 out:
@@ -641,6 +690,11 @@ out:
 void osd_exit_active_threads(void)
 {
 	int i;
+
+#ifdef QTIME_TRACE
+	if (qlog)
+		fclose(qlog);
+#endif
 
 	for (i = 0; i < num_active_workers; i++)
 		pthread_cancel(active_workers[i]);
@@ -674,6 +728,9 @@ int osd_submit_active_task(struct osd_device *osd, uint64_t pid, uint64_t oid,
 
 	active_task_set_status(task, ACTIVE_TASK_WAITING);
 	tq_append(TQ_WAIT, task);
+#ifdef QTIME_TRACE
+	qtrace(task, "arrived");
+#endif
 
 	return sense_build_sdd_csi(sense, OSD_SSK_VENDOR_SPECIFIC,
 			OSD_ASC_SUBMITTED_TASK_ID, pid, oid, task->id);

@@ -63,7 +63,7 @@ endif # OSDEMU
 
 INCLUDES += -I.
 
-DEBUG = 1
+DEBUG = 0
 CFLAGS += -D_GNU_SOURCE
 CFLAGS += $(INCLUDES)
 ifneq ($(DEBUG),)

@@ -9,7 +9,7 @@ target := $(MK_PATH)/osd-target
 CHECKPATCH ?= ~/dev/git/pub/scsi-misc/scripts/checkpatch.pl
 checkpatch_2_kdev = checkpatch-2-kdev
 
-OPT="-O0"
+OPT="-O2"
 
 .PHONY: all clean
 # comment out any below to remove from compelation
