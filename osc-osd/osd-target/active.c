@@ -18,6 +18,7 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <linux/types.h>
@@ -422,6 +423,42 @@ out:
 	return ret;
 }
 
+/** new implementation of active processing.
+ * because of the difficulties of spawning a process in multi-threaded, now we
+ * use a dedicated server process (active-server), which uses a shared mapped
+ * file for communication.
+ */
+
+struct active_request {
+	int ready;
+	int result;
+	char command[0];
+};
+
+static struct active_request *serv_req;
+
+static int run_task(struct active_task *task)
+{
+	int ret = 0;
+
+	active_task_set_status(task, ACTIVE_TASK_RUNNING);
+
+	ret = prepare_files(task);
+	if (ret)
+		return ret;
+
+	strcpy(serv_req->command, task->args);
+	serv_req->ready = 1;
+
+	while (serv_req->ready)
+		;
+
+	task->ret = serv_req->result;
+
+	return 0;
+}
+
+#if 0
 /** quick workaround for the evaluation
  * it just forks the process according to the string arguments.
  *
@@ -441,7 +478,7 @@ static int run_task(struct active_task *task)
 		return ret;
 
 	/** the executable is a symlink, use '.' */
-	sprintf(command, ". %s", task->args);
+	sprintf(command, "%s", task->args);
 	//sprintf(command, ". %s", task->args);
 
 
@@ -461,6 +498,7 @@ static int run_task(struct active_task *task)
 
 	return 0;
 }
+#endif
 
 /** fix the exofs metadata */
 #define EXOFS_IDATA		5
@@ -650,6 +688,8 @@ int osd_init_active_threads(int count)
 {
 	int ret = 0;
 	int i;
+	int shmid;
+	void *mem;
 	struct active_task *tasks = NULL;
 
 	if (count > 0)
@@ -672,6 +712,22 @@ int osd_init_active_threads(int count)
 			goto out;
 	}
 
+        shmid = open("/tmp/activerequest", O_RDWR);
+        if (shmid < 0) {
+                perror("open");
+                ret = -errno;
+                goto out;
+        }
+
+        mem = mmap(NULL, 1024, PROT_READ|PROT_WRITE, MAP_SHARED, shmid, 0);
+        if (mem == (void *) -1) {
+                perror("mmap");
+                ret = -errno;
+                goto out;
+        }
+
+	serv_req = (struct active_request *) mem;
+
 #ifdef QTIME_TRACE
 	qlog = fopen("/tmp/afe_qlog", "w");
 	if (qlog)
@@ -690,6 +746,8 @@ out:
 void osd_exit_active_threads(void)
 {
 	int i;
+
+	munmap((void *) serv_req, 1024);
 
 #ifdef QTIME_TRACE
 	if (qlog)

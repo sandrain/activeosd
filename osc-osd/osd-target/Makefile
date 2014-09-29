@@ -15,6 +15,7 @@ UTILDIR := ../osd-util/
 STGTDIR := ../tgt/
 INITDIR := ../osd-initiator/
 OSDTARGETLIB := libosdtgt.a
+ACTIVESERVER := active-server
 
 STGTLIB := ../stgt/libstgt.a
 UTILLIB := ../osd-util/libosdutil.a
@@ -63,7 +64,7 @@ endif
 
 .SUFFIXES: .c .o .i
 
-all :: $(OSDTARGETLIB)
+all :: $(OSDTARGETLIB) $(ACTIVESERVER)
 
 # Need -whole-archive this to get the constructors for the various device
 # types.  Another way would be to force a ref to an object in the file
@@ -92,6 +93,9 @@ osd-schema.c: osd.schema
 	   sed 's/^/"/; s/$$/\\n"/' < $< ;\
 	   echo ";" ) > $@
 
+$(ACTIVESERVER): active-server.c
+	$(CC) -D_BSD_SOURCE -D_XOPEN_SOURCE -lrt -o $@ $^ -Wall -O0 -ggdb
+
 #depend
 ifneq (clean, $(MAKECMDGOALS))
 -include $(DEP)
@@ -103,6 +107,7 @@ $(DEP) : osd-schema.c
 
 clean:
 	rm -f tgtd $(OSDTARGETLIB) $(OBJ) $(DEP) osd-schema.c
+	rm -f $(ACTIVESERVER)
 
 tags: FORCE osd-schema.c
 	ctags -R $(SRC) $(INC) $(TESTDIR) $(UTILDIR) $(INITDIR) osd-schema.c

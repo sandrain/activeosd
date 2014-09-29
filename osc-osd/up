@@ -36,6 +36,7 @@ OTGTD=./tgt/usr/$otgtd_name
 case $1 in
 down)
 	kill -15 `pidof $otgtd_name`
+	kill -15 `pidof active-server`
 #	for pid in `ps | grep $otgtd_name | cut -d' ' -f1`; do
 #		kill -15 $pid
 #	done
@@ -117,6 +118,10 @@ echo "================ `date` =========================" >> $LOG_FILE
 # -d - debug level
 #DEBUG="-d 9"
 DEBUG=""
+
+kill -15 `pidof active-server`
+touch /tmp/activerequest
+osd-target/active-server -o/tmp/active.log &
 
 $OTGTD $DEBUG -f &>> $LOG_FILE  &
 sleep 2
